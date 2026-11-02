@@ -30,7 +30,7 @@
         <MauiXamlInflator>SourceGen</MauiXamlInflator>
 
         <!-- Display name -->
-        <ApplicationTitle>Mellow.SlopFactory.App</ApplicationTitle>
+        <ApplicationTitle>Slop Factory</ApplicationTitle>
 
         <!-- App Identifier -->
         <ApplicationId>com.companyname.mellow.slopfactory.app</ApplicationId>
