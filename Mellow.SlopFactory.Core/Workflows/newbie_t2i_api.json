@@ -1,0 +1,218 @@
+{
+  "prompt": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "A cheerful girl with short green hair reading a book in a sunny library, anime style"
+    },
+    "_meta": {
+      "title": "Prompt (caption)"
+    }
+  },
+  "tags": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "<general_tags>\n<style>anime style, digital art, illustration, detailed shading</style>\n<quality>masterpiece, best quality, very awa, newest, highres, absurdres, amazing, detailed</quality>\n</general_tags>"
+    },
+    "_meta": {
+      "title": "Tags"
+    }
+  },
+  "prompt_template": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "You are an assistant designed to generate high-quality anime images with the highest degree of image-text alignment based on xml format textual prompts. <Prompt Start>\n{\n\"character_1\": {\n\"bbox\": [\n0,\n0,\n1000,\n1000\n],\n\"name\": \"$character_1$\"\n},\n\"image\": {\n\"tags\": \"\n{user_prompt}\n\",\n\"caption\": \"{caption}\"\n}\n}"
+    },
+    "_meta": {
+      "title": "Prompt Template"
+    }
+  },
+  "fill_tags": {
+    "class_type": "StringReplace",
+    "inputs": {
+      "string": [
+        "prompt_template",
+        0
+      ],
+      "find": "{user_prompt}",
+      "replace": [
+        "tags",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Insert tags"
+    }
+  },
+  "fill_caption": {
+    "class_type": "StringReplace",
+    "inputs": {
+      "string": [
+        "fill_tags",
+        0
+      ],
+      "find": "{caption}",
+      "replace": [
+        "prompt",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Insert caption"
+    }
+  },
+  "final_prompt": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "fill_caption",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Final Prompt"
+    }
+  },
+  "unet": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "NewBie-Image-Exp0.1-bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "clip": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "gemma_3_4b_it_bf16.safetensors",
+      "clip_name2": "jina_clip_v2_bf16.safetensors",
+      "type": "newbie",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "DualCLIPLoader"
+    }
+  },
+  "vae": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "model_sampling": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "unet",
+        0
+      ],
+      "shift": 6
+    },
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "positive": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "clip",
+        0
+      ],
+      "text": [
+        "final_prompt",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "negative": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "clip",
+        0
+      ],
+      "text": "You are an assistant designed to generate low-quality images based on textual prompts. <Prompt Start>"
+    },
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "latent": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1536,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "sampler": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "model_sampling",
+        0
+      ],
+      "positive": [
+        "positive",
+        0
+      ],
+      "negative": [
+        "negative",
+        0
+      ],
+      "latent_image": [
+        "latent",
+        0
+      ],
+      "seed": 0,
+      "steps": 20,
+      "cfg": 5.5,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1.0
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "decode": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "sampler",
+        0
+      ],
+      "vae": [
+        "vae",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "decode",
+        0
+      ],
+      "filename_prefix": "newbie"
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

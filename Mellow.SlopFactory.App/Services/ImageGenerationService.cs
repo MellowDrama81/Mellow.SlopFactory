@@ -49,6 +49,16 @@ public class ImageGenerationService
 	/// <summary>The most input images any workflow takes; each workflow has its own limit (see ImageWorkflows).</summary>
 	public static int MaxImages => ImageWorkflows.MaxImages;
 
+	/// <summary>Text-to-image workflows filled in by <see cref="TextToImageWorkflow"/>, by workflow id.</summary>
+	private static readonly Dictionary<string, string> TextToImageTemplates = new()
+	{
+		[ImageWorkflows.Krea2TurboGenerate] = EmbeddedWorkflows.Krea2TurboGenerate,
+		[ImageWorkflows.ZImageTurboGenerate] = EmbeddedWorkflows.ZImageTurboGenerate,
+		[ImageWorkflows.AnimaGenerate] = EmbeddedWorkflows.AnimaGenerate,
+		[ImageWorkflows.NewBieGenerate] = EmbeddedWorkflows.NewBieGenerate,
+		[ImageWorkflows.NetaYumeLuminaGenerate] = EmbeddedWorkflows.NetaYumeLuminaGenerate,
+	};
+
 	private readonly SettingsService settingsService;
 	private readonly LibraryService libraryService;
 
@@ -86,6 +96,17 @@ public class ImageGenerationService
 			{
 				Prompt = request.Prompt,
 				UpsamplePrompt = request.RefinePrompt,
+				Thinking = request.Thinking,
+				Width = request.Width,
+				Height = request.Height,
+			});
+		}
+		else if (TextToImageTemplates.TryGetValue(chosen.Id, out var template))
+		{
+			workflow = TextToImageWorkflow.Build(template, new TextToImageOptions
+			{
+				Prompt = request.Prompt,
+				RefinePrompt = request.RefinePrompt,
 				Thinking = request.Thinking,
 				Width = request.Width,
 				Height = request.Height,
@@ -164,7 +185,7 @@ public class ImageGenerationService
 			}
 		}
 
-		progress?.Report(request.RefinePrompt ? $"Improving the prompt and rendering with {chosen.Name}..." : $"Rendering with {chosen.Name}...");
+		progress?.Report(request.RefinePrompt && chosen.HasPromptEnhancer ?$"Improving the prompt and rendering with {chosen.Name}..." : $"Rendering with {chosen.Name}...");
 		var outputs = await comfy.RunWorkflowAsync(workflow, cancellationToken);
 
 		Directory.CreateDirectory(OutputDirectory);

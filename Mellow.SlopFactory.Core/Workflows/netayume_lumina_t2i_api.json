@@ -1,0 +1,158 @@
+{
+  "prompt": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "A girl with long black hair in a red kimono under falling snow, anime illustration"
+    },
+    "_meta": {
+      "title": "Prompt"
+    }
+  },
+  "system_prompt": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "You are an assistant designed to generate high quality anime images based on textual prompts. <Prompt Start> "
+    },
+    "_meta": {
+      "title": "System prompt"
+    }
+  },
+  "full_prompt": {
+    "class_type": "StringConcatenate",
+    "inputs": {
+      "string_a": [
+        "system_prompt",
+        0
+      ],
+      "string_b": [
+        "prompt",
+        0
+      ],
+      "delimiter": ""
+    },
+    "_meta": {
+      "title": "System prompt + prompt"
+    }
+  },
+  "checkpoint": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "NetaYumev35_pretrained_all_in_one.safetensors"
+    },
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "model_sampling": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "checkpoint",
+        0
+      ],
+      "shift": 4
+    },
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "positive": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "checkpoint",
+        1
+      ],
+      "text": [
+        "full_prompt",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "negative": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "checkpoint",
+        1
+      ],
+      "text": "You are an assistant designed to generate low-quality images based on textual prompts <Prompt Start> blurry, worst quality, low quality, jpeg artifacts, signature, watermark, username, error, deformed hands, bad anatomy, extra limbs, poorly drawn hands, poorly drawn face, mutation, deformed, extra eyes, extra arms, extra legs, malformed limbs, fused fingers, too many fingers, long neck, cross-eyed, bad proportions, missing arms, missing legs, extra digit, fewer digits, cropped"
+    },
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "latent": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "sampler": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "model_sampling",
+        0
+      ],
+      "positive": [
+        "positive",
+        0
+      ],
+      "negative": [
+        "negative",
+        0
+      ],
+      "latent_image": [
+        "latent",
+        0
+      ],
+      "seed": 0,
+      "steps": 30,
+      "cfg": 4.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1.0
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "decode": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "sampler",
+        0
+      ],
+      "vae": [
+        "checkpoint",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "decode",
+        0
+      ],
+      "filename_prefix": "netayume_lumina"
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

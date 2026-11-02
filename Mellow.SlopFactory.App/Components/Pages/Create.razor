@@ -158,11 +158,17 @@
 
     <div class="mb-3">
         <div class="form-check form-switch">
-            <input id="refine" class="form-check-input" type="checkbox" role="switch" disabled="@Session.Busy" @bind="Session.RefinePrompt" />
-            <label for="refine" class="form-check-label">Improve prompt</label>
+            <input id="refine" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !canRefine)" @bind="Session.RefinePrompt" />
+            <label for="refine" class="form-check-label">
+                Improve prompt
+                @if (!canRefine)
+                {
+                    <span class="text-body-secondary">(not available with @Session.Workflow!.Name)</span>
+                }
+            </label>
         </div>
         <div class="form-check form-switch">
-            <input id="thinking" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !Session.RefinePrompt)" @bind="Session.Thinking" />
+            <input id="thinking" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !Session.RefinePrompt || !canRefine)" @bind="Session.Thinking" />
             <label for="thinking" class="form-check-label">Thinking <span class="text-body-secondary">(recommended with Improve prompt)</span></label>
         </div>
     </div>
@@ -265,6 +271,9 @@
     private string? defaultOutputFolderId;
 
     private List<CreateSession.InputItem> images => Session.Images;
+
+    /// <summary>Whether the chosen workflow has a prompt enhancer for "Improve prompt" to turn on.</summary>
+    private bool canRefine => Session.Workflow?.HasPromptEnhancer != false;
 
     protected override async Task OnInitializedAsync()
     {

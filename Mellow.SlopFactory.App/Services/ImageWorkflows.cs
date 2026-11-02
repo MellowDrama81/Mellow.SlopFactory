@@ -16,13 +16,19 @@ public enum ImageWorkflowKind
 /// <param name="Id">Stable id, used to remember and request the choice.</param>
 /// <param name="Description">One line for under the picker.</param>
 /// <param name="MaxImages">The most input images it takes; 0 for text-to-image.</param>
-public record ImageWorkflow(string Id, string Name, string Description, ImageWorkflowKind Kind, int MaxImages = 0);
+/// <param name="HasPromptEnhancer">Whether "Improve prompt" does anything.</param>
+public record ImageWorkflow(string Id, string Name, string Description, ImageWorkflowKind Kind, int MaxImages = 0, bool HasPromptEnhancer = true);
 
 /// <summary>The built-in workflows the Create page can run.</summary>
 public static class ImageWorkflows
 {
 	public const string QwenGenerate = "qwen-image-2.1-t2i";
 	public const string Flux3KleinGenerate = "flux3-image-klein-t2i";
+	public const string Krea2TurboGenerate = "krea2-turbo-t2i";
+	public const string ZImageTurboGenerate = "z-image-turbo-t2i";
+	public const string AnimaGenerate = "anima-t2i";
+	public const string NewBieGenerate = "newbie-t2i";
+	public const string NetaYumeLuminaGenerate = "netayume-lumina-t2i";
 	public const string QwenEdit = "qwen-image-2.1-edit";
 	public const string Flux3KleinEdit = "flux3-image-klein-edit";
 	public const string QwenInpaint = "qwen-image-2.1-inpaint";
@@ -39,6 +45,11 @@ public static class ImageWorkflows
 	[
 		new(QwenGenerate, "Qwen Image 2.1", "Alibaba's Qwen Image 2.1, with its prompt enhancer.", ImageWorkflowKind.Generate),
 		new(Flux3KleinGenerate, "FLUX 3 Image Klein", "Black Forest Labs' FLUX 3 Klein base model (50 steps), with its prompt upsampler. Strong at lettering.", ImageWorkflowKind.Generate),
+		new(Krea2TurboGenerate, "Krea 2 Turbo", "Krea's fast model (8 steps) for expressive, artistic styles, with its prompt refiner.", ImageWorkflowKind.Generate),
+		new(ZImageTurboGenerate, "Z-Image Turbo", "A fast photorealistic model (8 steps).", ImageWorkflowKind.Generate, HasPromptEnhancer: false),
+		new(AnimaGenerate, "Anima", "Anime illustration (Anima Base 1.0). Takes Danbooru-style tags or plain descriptions.", ImageWorkflowKind.Generate, HasPromptEnhancer: false),
+		new(NewBieGenerate, "NewBie", "Anime illustration (NewBie Exp0.1). Describe the image, or write its XML tags starting with <character_1>.", ImageWorkflowKind.Generate, HasPromptEnhancer: false),
+		new(NetaYumeLuminaGenerate, "NetaYume Lumina", "Anime illustration (NetaYume Lumina 3.5), from natural-language descriptions.", ImageWorkflowKind.Generate, HasPromptEnhancer: false),
 		new(QwenEdit, "Qwen Image 2.1 Edit", "Changes image 1 as the prompt describes, using any other images as references.", ImageWorkflowKind.Edit, Core.QwenImageEditOptions.MaxImages),
 		new(Flux3KleinEdit, "FLUX 3 Image Klein Edit", "Black Forest Labs' FLUX 3 Klein. The output takes image 1's shape; extra images are shrunk to keep many references affordable.", ImageWorkflowKind.Edit, Flux3KleinEditMaxImages),
 		new(QwenInpaint, "Qwen Image 2.1 Inpaint", "Redraws only the masked area of image 1; everything else stays exactly as it is.", ImageWorkflowKind.Inpaint, Core.QwenImageInpaintOptions.MaxImages),
