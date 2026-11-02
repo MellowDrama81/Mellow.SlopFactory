@@ -1,0 +1,195 @@
+@implements IDisposable
+@inject ImageToolService ImageTools
+@inject LibraryService LibraryService
+@inject ThumbnailService ThumbnailService
+@inject SettingsService SettingsService
+@inject ExportService ExportService
+
+<div class="tool-controls d-flex align-items-end flex-wrap gap-2 mb-3">
+    @if (Tool == ImageTool.Upscale)
+    {
+        <div>
+            <label for="upscale-factor" class="form-label">Scale</label>
+            <select id="upscale-factor" class="form-select upscale-factor"
+                    @bind:get="ImageTools.UpscaleFactor" @bind:set="value => ImageTools.UpscaleFactor = value">
+                @foreach (var factor in Mellow.SlopFactory.Core.ImageToolWorkflows.UpscaleFactors)
+                {
+                    <option value="@factor">@(factor)×</option>
+                }
+            </select>
+        </div>
+    }
+    <label class="btn btn-primary @(adding ? "disabled" : null)">
+        <InputFile OnChange="AddFilesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" disabled="@adding" />
+        @(adding ? "Adding..." : "Add images")
+    </label>
+    <button class="btn btn-outline-secondary" type="button" disabled="@adding" @onclick="() => showLibraryPicker = true">From library</button>
+    @if (jobs.Any(j => j.IsFinished))
+    {
+        <button class="btn btn-outline-secondary ms-auto" type="button" title="Remove finished items from this list. Their results stay in the library."
+                @onclick="() => ImageTools.ClearFinished(Tool)">Clear finished</button>
+    }
+</div>
+
+@if (error != null)
+{
+    <p class="text-danger small" role="status">@error</p>
+}
+
+@if (jobs.Count == 0)
+{
+    <div class="tool-empty">
+        <p class="mb-1">Nothing here yet.</p>
+        <p class="text-body-secondary mb-0">
+            Add images to start. Each one is worked on in turn and the result is added to the library next to the
+            original. You can switch to other pages while this runs.
+        </p>
+    </div>
+}
+else
+{
+    <div class="tool-jobs">
+        @foreach (var job in jobs.AsEnumerable().Reverse())
+        {
+            <figure class="tool-job">
+                <div class="tool-images">
+                    <img src="@job.InputUrl" alt="@job.Source.FileName" title="@job.Source.FileName" />
+                    <span class="tool-arrow" aria-hidden="true">&rarr;</span>
+                    @if (job.ResultUrl != null)
+                    {
+                        <img class="tool-result" src="@job.ResultUrl" alt="@job.Result!.FileName" title="@job.Result.FileName" />
+                    }
+                    else
+                    {
+                        <div class="tool-placeholder">
+                            @if (job.State == ImageToolJobState.Running)
+                            {
+                                <span class="spinner-border text-secondary" aria-hidden="true"></span>
+                            }
+                            else if (job.State == ImageToolJobState.Failed)
+                            {
+                                <span class="text-danger" aria-hidden="true">&times;</span>
+                            }
+                        </div>
+                    }
+                </div>
+                <figcaption>
+                    <div class="text-truncate small fw-semibold" title="@(job.Result?.FileName ?? job.Source.FileName)">@(job.Result?.FileName ?? job.Source.FileName)</div>
+                    <div class="small @(job.State == ImageToolJobState.Failed ? "text-danger" : "text-body-secondary")" role="status">
+                        @(Tool == ImageTool.Upscale ? $"{job.Factor}× · " : null)@job.Status
+                    </div>
+                    @if (job.Result is { } result)
+                    {
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => OpenAsync(result)">Open</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" @onclick="() => SaveAsync(result)">Save as...</button>
+                            <a class="btn btn-link btn-sm" href="@LibraryUrl(result)">In library</a>
+                        </div>
+                    }
+                </figcaption>
+            </figure>
+        }
+    </div>
+}
+
+@if (showLibraryPicker)
+{
+    <LibraryPicker MaxSelectable="MaxPick" OnAdd="AddFromLibrary" OnClose="() => showLibraryPicker = false" />
+}
+
+@code {
+    private const long MaxFileSize = 25 * 1024 * 1024;
+    private const int MaxPick = 50;
+
+    [Parameter, EditorRequired] public ImageTool Tool { get; set; }
+
+    private bool adding;
+    private bool showLibraryPicker;
+    private string? error;
+
+    private IReadOnlyList<ImageToolJob> jobs => ImageTools.Jobs(Tool);
+
+    protected override void OnInitialized()
+    {
+        ImageTools.Changed += OnToolsChanged;
+    }
+
+    private void OnToolsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ImageTools.Changed -= OnToolsChanged;
+    }
+
+    /// <summary>Adds the files to the library (as the Create page does), then queues them.</summary>
+    private async Task AddFilesAsync(InputFileChangeEventArgs e)
+    {
+        adding = true;
+        error = null;
+        var problems = new List<string>();
+        var added = new List<(LibraryImage, string)>();
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: MaxPick))
+        {
+            try
+            {
+                if (file.Size > MaxFileSize)
+                {
+                    problems.Add($"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB");
+                    continue;
+                }
+
+                using var stream = file.OpenReadStream(MaxFileSize);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                var data = buffer.ToArray();
+                var thumbnail = await ThumbnailService.CreateAsync(data, LibraryService.ContentTypeFor(file.Name));
+                var (image, _) = await LibraryService.AddAsync(file.Name, data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId,
+                    new LibraryImageMetadata(LibraryImageSource.Uploaded));
+                added.Add((image, await LibraryService.GetThumbnailDataUrlAsync(image)));
+            }
+            catch (Exception ex)
+            {
+                problems.Add($"{file.Name}: {ex.Message}");
+            }
+        }
+
+        ImageTools.Enqueue(Tool, added);
+        adding = false;
+        if (problems.Count > 0)
+        {
+            error = $"Couldn't add {string.Join("; ", problems)}.";
+        }
+    }
+
+    private void AddFromLibrary(IReadOnlyList<(LibraryImage Image, byte[] Data, string ThumbnailDataUrl)> picked)
+    {
+        error = null;
+        showLibraryPicker = false;
+        ImageTools.Enqueue(Tool, picked.Select(p => (p.Image, p.ThumbnailDataUrl)));
+    }
+
+    private static async Task OpenAsync(LibraryImage image)
+    {
+        await Launcher.Default.OpenAsync(new OpenFileRequest(image.FileName, new ReadOnlyFile(LibraryService.ImagePath(image))));
+    }
+
+    private async Task SaveAsync(LibraryImage image)
+    {
+        try
+        {
+            await ExportService.SaveAsync(ExportService.SafeName(image.FileName), await LibraryService.ReadAsync(image));
+        }
+        catch (Exception ex)
+        {
+            error = $"Couldn't save {image.FileName}: {ex.Message}";
+        }
+    }
+
+    private static string LibraryUrl(LibraryImage image)
+    {
+        return image.FolderId == null ? "library" : $"library?folder={Uri.EscapeDataString(image.FolderId)}";
+    }
+}

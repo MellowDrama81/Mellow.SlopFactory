@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject CreateSession Session
+@inject ImageToolService ImageTools
 
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
@@ -26,6 +27,24 @@
             </NavLink>
         </div>
         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="upscale">
+                <span class="bi bi-arrows-angle-expand-nav-menu" aria-hidden="true"></span> Upscale
+                @if (ImageTools.IsBusy(ImageTool.Upscale))
+                {
+                    <span class="spinner-border spinner-border-sm ms-auto" role="status" title="Upscaling"><span class="visually-hidden">Upscaling</span></span>
+                }
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="remove-background">
+                <span class="bi bi-eraser-fill-nav-menu" aria-hidden="true"></span> Remove background
+                @if (ImageTools.IsBusy(ImageTool.RemoveBackground))
+                {
+                    <span class="spinner-border spinner-border-sm ms-auto" role="status" title="Removing backgrounds"><span class="visually-hidden">Removing backgrounds</span></span>
+                }
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
             <NavLink class="nav-link" href="settings">
                 <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> Settings
             </NavLink>
@@ -34,10 +53,11 @@
 </div>
 
 @code {
-    // Shows that a generation is still running while the user is on another page.
+    // Shows that a generation or tool is still running while the user is on another page.
     protected override void OnInitialized()
     {
         Session.Changed += OnSessionChanged;
+        ImageTools.Changed += OnSessionChanged;
     }
 
     private void OnSessionChanged()
@@ -48,5 +68,6 @@
     public void Dispose()
     {
         Session.Changed -= OnSessionChanged;
+        ImageTools.Changed -= OnSessionChanged;
     }
 }
