@@ -18,6 +18,8 @@ namespace Mellow.SlopFactory.Core
         public const string AnimaGenerate = "anima_t2i_api.json";
         public const string NewBieGenerate = "newbie_t2i_api.json";
         public const string NetaYumeLuminaGenerate = "netayume_lumina_t2i_api.json";
+        public const string RemoveBackground = "birefnet_remove_background_api.json";
+        public const string Upscale = "seedvr2_upscale_api.json";
 
         private const string ResourcePrefix = "Mellow.SlopFactory.Core.Workflows.";
 

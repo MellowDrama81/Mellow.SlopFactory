@@ -1,0 +1,77 @@
+{
+  "load_image": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "image.png"
+    },
+    "_meta": {
+      "title": "image"
+    }
+  },
+  "model": {
+    "class_type": "LoadBackgroundRemovalModel",
+    "inputs": {
+      "bg_removal_name": "birefnet.safetensors"
+    },
+    "_meta": {
+      "title": "Load Background Removal Model"
+    }
+  },
+  "remove": {
+    "class_type": "RemoveBackground",
+    "inputs": {
+      "image": [
+        "load_image",
+        0
+      ],
+      "bg_removal_model": [
+        "model",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Remove Background"
+    }
+  },
+  "invert": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "remove",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Invert Mask"
+    }
+  },
+  "join": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": [
+        "load_image",
+        0
+      ],
+      "alpha": [
+        "invert",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Join Image with Alpha"
+    }
+  },
+  "save": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "join",
+        0
+      ],
+      "filename_prefix": "remove_background"
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

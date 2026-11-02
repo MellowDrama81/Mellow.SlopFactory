@@ -45,6 +45,10 @@
     max-width: 20rem;
 }
 
+.upscale-factor {
+    width: auto;
+}
+
 .library-tile.selected {
     border-color: #1b6ec2;
     box-shadow: 0 0 0 2px #1b6ec2;

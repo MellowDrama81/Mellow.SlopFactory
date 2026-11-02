@@ -27,6 +27,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<LibraryService>();
 		builder.Services.AddScoped<ThumbnailService>();
 		builder.Services.AddScoped<CreateSession>();
+		builder.Services.AddScoped<ImageToolService>();
 		builder.Services.AddSingleton(FileSaver.Default);
 		builder.Services.AddSingleton(FolderPicker.Default);
 		builder.Services.AddSingleton<ExportService>();

@@ -231,7 +231,7 @@ public class ImageGenerationService
 	/// Gets an input image into the server's input folder: reuses the copy the library recorded for this server if
 	/// the server still has it, otherwise uploads it and records the new copy.
 	/// </summary>
-	private async Task<ComfyFileRef> PutOnServerAsync(ComfyApi comfy, InputImage input, string label, IProgress<string>? progress, CancellationToken cancellationToken)
+	public async Task<ComfyFileRef> PutOnServerAsync(ComfyApi comfy, InputImage input, string label, IProgress<string>? progress, CancellationToken cancellationToken)
 	{
 		var server = ComfyServer.Key(comfy.BaseAddress);
 		var image = await libraryService.FindAsync(input.Data);

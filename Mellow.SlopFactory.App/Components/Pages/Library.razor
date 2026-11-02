@@ -4,6 +4,7 @@
 @inject ThumbnailService ThumbnailService
 @inject NavigationManager Navigation
 @inject ExportService ExportService
+@inject ImageToolService ImageTools
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <h1 class="mb-0">Library</h1>
@@ -91,12 +92,29 @@ else
                     title="Copy the selected images, and everything in the selected folders, to a folder you choose" @onclick="ExportSelectedAsync">
                 @(exporting ? "Exporting..." : "Export")
             </button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" disabled="@(selectedImages.Count == 0)"
+                    title="Cut the subject out of each selected image; the results are added next to them" @onclick="() => RunToolOnSelectedAsync(ImageTool.RemoveBackground)">Remove background</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" disabled="@(selectedImages.Count == 0)"
+                    title="Upscale each selected image; the results are added next to them" @onclick="() => RunToolOnSelectedAsync(ImageTool.Upscale)">Upscale @(ImageTools.UpscaleFactor)×</button>
             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="SelectAll">Select all</button>
             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StopSelecting">Done</button>
         }
         else
         {
             <span class="text-body-secondary small me-auto">@Summary()</span>
+            @if (images.Count > 0)
+            {
+                <label class="d-flex align-items-center gap-1 small mb-0">
+                    Upscale
+                    <select class="form-select form-select-sm upscale-factor" aria-label="Upscale factor"
+                            @bind:get="ImageTools.UpscaleFactor" @bind:set="value => ImageTools.UpscaleFactor = value">
+                        @foreach (var factor in Mellow.SlopFactory.Core.ImageToolWorkflows.UpscaleFactors)
+                        {
+                            <option value="@factor">@(factor)×</option>
+                        }
+                    </select>
+                </label>
+            }
             @if (folders.Count + images.Count > 0)
             {
                 <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StartSelecting">Select</button>
@@ -184,7 +202,14 @@ else
                 <figcaption>
                     <div class="text-truncate small" title="@image.FileName">@image.FileName</div>
                     <div class="text-body-secondary small">@image.AddedAt.LocalDateTime.ToString("d MMM yyyy")</div>
-                    @if (confirmDeleteId == image.Id)
+                    @if (ImageTools.Running.TryGetValue(image.Id, out var toolStatus))
+                    {
+                        <div class="d-flex align-items-center gap-1 small text-body-secondary mt-1" role="status">
+                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                            <span class="text-truncate" title="@toolStatus">@toolStatus</span>
+                        </div>
+                    }
+                    else if (confirmDeleteId == image.Id)
                     {
                         <div class="d-flex flex-wrap gap-1 mt-1">
                             <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteAsync(image)">Delete</button>
@@ -197,6 +222,12 @@ else
                             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => OpenAsync(image)">Open</button>
                             <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" @onclick="() => SaveAsync(image)">Save as...</button>
                             <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" @onclick="() => confirmDeleteId = image.Id">Remove</button>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Cut the subject out; the result is added next to this image"
+                                    @onclick="() => RunToolAsync(image, ImageTool.RemoveBackground)">Remove background</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Make a @(ImageTools.UpscaleFactor)× larger copy with restored detail"
+                                    @onclick="() => RunToolAsync(image, ImageTool.Upscale)">Upscale @(ImageTools.UpscaleFactor)×</button>
                         </div>
                     }
                 </figcaption>
@@ -243,6 +274,12 @@ else
     protected override void OnInitialized()
     {
         LibraryService.Changed += OnLibraryChanged;
+        ImageTools.Changed += OnToolsChanged;
+    }
+
+    private void OnToolsChanged()
+    {
+        InvokeAsync(StateHasChanged);
     }
 
     // Picks up images added elsewhere while this page is open, e.g. a generation finishing in the background.
@@ -258,6 +295,7 @@ else
     public void Dispose()
     {
         LibraryService.Changed -= OnLibraryChanged;
+        ImageTools.Changed -= OnToolsChanged;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -604,6 +642,49 @@ else
         var name = ExportService.SafeName(image.FileName);
         var extension = Path.GetExtension(LibraryService.ImagePath(image));
         return LibraryService.ContentTypeFor(name) == image.ContentType && Path.HasExtension(name) ? name : name + extension;
+    }
+
+    private async Task RunToolAsync(LibraryImage image, ImageTool tool)
+    {
+        var action = ImageToolService.Describe(tool, ImageTools.UpscaleFactor);
+        try
+        {
+            var result = await ImageTools.RunAsync(image, tool);
+            status = $"{action}: added {result.FileName}.";
+            statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            status = $"{action} failed for {image.FileName}: {ex.Message}";
+            statusIsError = true;
+        }
+    }
+
+    /// <summary>Runs a tool on each selected image in turn, skipping any a tool is already running on.</summary>
+    private async Task RunToolOnSelectedAsync(ImageTool tool)
+    {
+        var targets = allImages.Where(i => selectedImages.Contains(i.Id) && !ImageTools.Running.ContainsKey(i.Id)).ToList();
+        var action = ImageToolService.Describe(tool, ImageTools.UpscaleFactor);
+        StopSelecting();
+        var failures = new List<string>();
+        for (var i = 0; i < targets.Count; i++)
+        {
+            status = $"{action}: {i + 1} of {targets.Count}...";
+            statusIsError = false;
+            StateHasChanged();
+            try
+            {
+                await ImageTools.RunAsync(targets[i], tool);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{targets[i].FileName} ({ex.Message})");
+            }
+        }
+
+        var done = targets.Count - failures.Count;
+        status = $"{action}: added {done} {(done == 1 ? "image" : "images")}." + (failures.Count > 0 ? $" Failed: {string.Join("; ", failures)}." : "");
+        statusIsError = failures.Count > 0 && done == 0;
     }
 
     private async Task MoveSelectedAsync()
