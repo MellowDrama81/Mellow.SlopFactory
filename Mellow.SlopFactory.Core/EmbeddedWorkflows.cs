@@ -11,6 +11,7 @@ namespace Mellow.SlopFactory.Core
         public const string QwenImageGenerate = "qwen_image_2_1_t2i_api.json";
         public const string QwenImageInpaint = "qwen_image_2_1_inpaint_api.json";
         public const string Flux3KleinGenerate = "flux3_image_klein_t2i_api.json";
+        public const string Flux3KleinEdit = "flux3_image_klein_edit_api.json";
 
         private const string ResourcePrefix = "Mellow.SlopFactory.Core.Workflows.";
 

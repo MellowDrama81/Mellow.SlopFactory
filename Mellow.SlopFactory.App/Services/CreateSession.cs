@@ -55,8 +55,8 @@ public class CreateSession
 	/// <summary>The chosen workflow for each kind, so switching between them keeps each choice.</summary>
 	private readonly Dictionary<ImageWorkflowKind, string> workflowChoices = [];
 
-	/// <summary>The workflow that will run for the current inputs.</summary>
-	public ImageWorkflow Workflow => ImageWorkflows.Resolve(WorkflowKind, workflowChoices.GetValueOrDefault(WorkflowKind));
+	/// <summary>The workflow that will run for the current inputs; null if none of this kind takes this many images.</summary>
+	public ImageWorkflow? Workflow => ImageWorkflows.Resolve(WorkflowKind, Images.Count, workflowChoices.GetValueOrDefault(WorkflowKind));
 
 	public void ChooseWorkflow(string? id)
 	{
@@ -84,7 +84,7 @@ public class CreateSession
 	/// <summary>Starts a generation from the current form. It runs until it finishes or <see cref="Cancel"/> is called.</summary>
 	public async Task GenerateAsync()
 	{
-		if (Busy || string.IsNullOrWhiteSpace(Prompt))
+		if (Busy || string.IsNullOrWhiteSpace(Prompt) || Workflow == null)
 		{
 			return;
 		}
@@ -100,7 +100,7 @@ public class CreateSession
 			Width = size.Width,
 			Height = size.Height,
 			FileName = FileName,
-			WorkflowId = Workflow.Id,
+			WorkflowId = Workflow?.Id,
 		};
 		var folderId = OutputFolderId.Length == 0 ? null : OutputFolderId;
 

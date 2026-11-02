@@ -117,14 +117,30 @@
         <label for="workflow" class="form-label">
             Workflow <span class="text-body-secondary">(@KindLabel(Session.WorkflowKind))</span>
         </label>
-        <select id="workflow" class="form-select size-select" disabled="@Session.Busy"
-                @bind:get="Session.Workflow.Id" @bind:set="Session.ChooseWorkflow">
-            @foreach (var workflow in ImageWorkflows.For(Session.WorkflowKind))
-            {
-                <option value="@workflow.Id">@workflow.Name</option>
-            }
-        </select>
-        <div class="form-text">@Session.Workflow.Description</div>
+        @if (Session.Workflow == null)
+        {
+            <div class="text-danger small">
+                @string.Join(", ", ImageWorkflows.TooFewImagesFor(Session.WorkflowKind, Session.Images.Count).Select(w => $"{w.Name} takes up to {w.MaxImages} images"))
+                — remove some to continue.
+            </div>
+        }
+        else
+        {
+            <select id="workflow" class="form-select size-select" disabled="@Session.Busy"
+                    @bind:get="Session.Workflow.Id" @bind:set="Session.ChooseWorkflow">
+                @foreach (var workflow in ImageWorkflows.For(Session.WorkflowKind, Session.Images.Count))
+                {
+                    <option value="@workflow.Id">@workflow.Name</option>
+                }
+            </select>
+            <div class="form-text">
+                @Session.Workflow.Description
+                @foreach (var hidden in ImageWorkflows.TooFewImagesFor(Session.WorkflowKind, Session.Images.Count))
+                {
+                    <span class="ms-1">@hidden.Name isn't offered: it takes up to @hidden.MaxImages images.</span>
+                }
+            </div>
+        }
     </div>
 
     @if (Session.Images.Count == 0)
@@ -171,7 +187,7 @@
     </div>
 
     <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-primary" type="button" disabled="@(Session.Busy || string.IsNullOrWhiteSpace(Session.Prompt))" @onclick="Session.GenerateAsync">
+        <button class="btn btn-primary" type="button" disabled="@(Session.Busy || string.IsNullOrWhiteSpace(Session.Prompt) || Session.Workflow == null)" @onclick="Session.GenerateAsync">
             @(Session.Images.Count == 0 ? "Generate" : Session.Images[0].Mask != null ? "Inpaint" : "Edit image")
         </button>
         @if (Session.Busy)

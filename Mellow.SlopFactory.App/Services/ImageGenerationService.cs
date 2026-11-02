@@ -46,7 +46,8 @@ public class ImageGenerationRequest
 /// </summary>
 public class ImageGenerationService
 {
-	public const int MaxImages = QwenImageEditOptions.MaxImages;
+	/// <summary>The most input images any workflow takes; each workflow has its own limit (see ImageWorkflows).</summary>
+	public static int MaxImages => ImageWorkflows.MaxImages;
 
 	private readonly SettingsService settingsService;
 	private readonly LibraryService libraryService;
@@ -75,7 +76,9 @@ public class ImageGenerationService
 		var settings = await settingsService.LoadComfyAsync();
 		using var comfy = new ComfyApi(settings);
 
-		var chosen = ImageWorkflows.Resolve(ImageWorkflows.KindFor(request.Images.Count, request.Mask != null), request.WorkflowId);
+		var kind = ImageWorkflows.KindFor(request.Images.Count, request.Mask != null);
+		var chosen = ImageWorkflows.Resolve(kind, request.Images.Count, request.WorkflowId)
+			?? throw new ArgumentException($"No workflow takes {request.Images.Count} images for {kind.ToString().ToLowerInvariant()}.", nameof(request));
 		System.Text.Json.Nodes.JsonObject workflow;
 		if (chosen.Id == ImageWorkflows.Flux3KleinGenerate)
 		{
@@ -119,6 +122,16 @@ public class ImageGenerationService
 					Images = uploaded,
 					Mask = string.IsNullOrEmpty(mask.Subfolder) ? mask.Filename : $"{mask.Subfolder}/{mask.Filename}",
 					RefinePrompt = request.RefinePrompt,
+					Thinking = request.Thinking,
+				});
+			}
+			else if (chosen.Id == ImageWorkflows.Flux3KleinEdit)
+			{
+				workflow = Flux3KleinEditWorkflow.Build(new Flux3KleinEditOptions
+				{
+					Prompt = request.Prompt,
+					Images = uploaded,
+					UpsamplePrompt = request.RefinePrompt,
 					Thinking = request.Thinking,
 				});
 			}
