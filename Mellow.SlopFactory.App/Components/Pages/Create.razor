@@ -37,6 +37,10 @@
         {
             <div class="form-text">Refer to images as &lt;image1&gt; ... &lt;image@(Session.Images.Count)&gt;. Image 1 is the one being edited.</div>
         }
+        @if (Session.Images.Count > 0 && Session.Images[0].Mask != null)
+        {
+            <div class="form-text">Image 1 has a mask: describe what goes in the masked area. Everything outside it stays exactly as it is.</div>
+        }
     </div>
 
     <div class="mb-3">
@@ -55,11 +59,20 @@
                 var image = Session.Images[index];
                 <figure class="image-tile">
                     <img src="@image.DataUrl" alt="@image.Input.FileName" />
+                    @if (image.MaskOverlayUrl != null)
+                    {
+                        <img class="mask-overlay" src="@image.MaskOverlayUrl" alt="" />
+                    }
                     <figcaption>
                         <span class="badge text-bg-dark">image@(index + 1)</span>
                         @if (!Session.Busy)
                         {
                             <span class="tile-actions">
+                                @if (index == 0)
+                                {
+                                    <button class="btn btn-light btn-sm" type="button" title="@(image.Mask == null ? "Paint a mask to change only part of this image" : "Edit the mask")"
+                                            @onclick="() => showMaskEditor = true">Mask</button>
+                                }
                                 @if (index > 0)
                                 {
                                     <button class="btn btn-light btn-sm" type="button" title="Move earlier" @onclick="() => MoveEarlier(index)">&larr;</button>
@@ -68,6 +81,11 @@
                             </span>
                         }
                     </figcaption>
+                    @if (image.Mask != null)
+                    {
+                        <span class="mask-badge badge @(index == 0 ? "text-bg-danger" : "text-bg-secondary")"
+                              title="@(index == 0 ? "Only the masked area will change" : "Masks are only used on image 1")">@(index == 0 ? "Masked" : "Mask unused")</span>
+                    }
                 </figure>
             }
 
@@ -140,7 +158,7 @@
 
     <div class="d-flex align-items-center gap-2">
         <button class="btn btn-primary" type="button" disabled="@(Session.Busy || string.IsNullOrWhiteSpace(Session.Prompt))" @onclick="Session.GenerateAsync">
-            @(Session.Images.Count == 0 ? "Generate" : "Edit image")
+            @(Session.Images.Count == 0 ? "Generate" : Session.Images[0].Mask != null ? "Inpaint" : "Edit image")
         </button>
         @if (Session.Busy)
         {
@@ -191,6 +209,13 @@
 </section>
 </div>
 
+@if (showMaskEditor && Session.Images.Count > 0)
+{
+    var first = Session.Images[0];
+    <MaskEditor Image="first.Input.Data" ContentType="@LibraryService.ContentTypeFor(first.Input.FileName)" Mask="first.Mask"
+                OnSave="SaveMask" OnClose="() => showMaskEditor = false" />
+}
+
 @if (showLibraryPicker)
 {
     <LibraryPicker MaxSelectable="@(ImageGenerationService.MaxImages - Session.Images.Count)" FirstImageNumber="@(Session.Images.Count + 1)"
@@ -204,6 +229,7 @@
     private string? imageError;
     private ElementReference resultsSection;
     private bool showLibraryPicker;
+    private bool showMaskEditor;
     private (string Url, string Label) uploadFolder = ("library", "the library");
     private IReadOnlyList<LibraryFolder> folders = [];
     private string? defaultOutputFolderId;
@@ -315,6 +341,16 @@
         var error = await Session.TryAddToLibraryAsync(result);
         Session.Status = error == null ? "Added to library." : $"Couldn't add to library: {error}";
         Session.StatusIsError = error != null;
+    }
+
+    private void SaveMask((byte[]? Mask, string? OverlayUrl) saved)
+    {
+        if (Session.Images.Count > 0)
+        {
+            Session.Images[0] = Session.Images[0] with { Mask = saved.Mask, MaskOverlayUrl = saved.OverlayUrl };
+        }
+
+        showMaskEditor = false;
     }
 
     private void MoveEarlier(int index)

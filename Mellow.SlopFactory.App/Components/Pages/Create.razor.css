@@ -133,3 +133,16 @@ button.add-tile {
     grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
     gap: 0.75rem;
 }
+
+/* The mask, tinted red, laid over image 1's thumbnail. Same size and fit as the thumbnail so they line up. */
+.image-tile .mask-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.mask-badge {
+    position: absolute;
+    left: 0.25rem;
+    bottom: 0.25rem;
+}

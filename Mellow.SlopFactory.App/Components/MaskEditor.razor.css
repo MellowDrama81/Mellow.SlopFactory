@@ -1,0 +1,39 @@
+.mask-stage {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    background: #212529;
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    user-select: none;
+}
+
+/* Shown scaled down to fit the window under the dialog's header, toolbar and footer; drawing maps pointer
+   positions back to image pixels. */
+.mask-canvas {
+    display: block;
+    max-width: 100%;
+    max-height: max(12rem, calc(100vh - 20rem));
+    cursor: none;
+    touch-action: none;
+}
+
+.mask-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: -1rem 0 0 -1rem;
+}
+
+.mask-size {
+    width: 10rem;
+}
+
+.mask-size-value {
+    min-width: 3.5rem;
+}
+
+/* Dragging a stroke past the canvas shouldn't select the dialog's text. */
+.mask-editor {
+    user-select: none;
+}

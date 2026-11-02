@@ -77,6 +77,7 @@ public class CreateSession
 		{
 			Prompt = Prompt.Trim(),
 			Images = Images.Select(i => i.Input).ToList(),
+			Mask = Images.Count > 0 ? Images[0].Mask : null,
 			RefinePrompt = RefinePrompt,
 			Thinking = RefinePrompt && Thinking,
 			Width = size.Width,
@@ -204,6 +205,14 @@ public class CreateSession
 	/// <param name="DataUrl">What the tile shows: the image itself, or a library thumbnail.</param>
 	public sealed record InputItem(InputImage Input, string DataUrl)
 	{
+		/// <summary>
+		/// A PNG mask drawn over this image, white where it should change. Only used while the image is image 1.
+		/// </summary>
+		public byte[]? Mask { get; init; }
+
+		/// <summary>The mask as a small red see-through overlay for the tile, when there is one.</summary>
+		public string? MaskOverlayUrl { get; init; }
+
 		public static InputItem FromData(InputImage input, string? contentType)
 		{
 			return new InputItem(input, $"data:{(string.IsNullOrEmpty(contentType) ? "image/png" : contentType)};base64,{Convert.ToBase64String(input.Data)}");

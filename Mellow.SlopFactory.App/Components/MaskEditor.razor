@@ -1,0 +1,174 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="modal-backdrop fade show"></div>
+<div class="modal d-block mask-editor" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="mask-editor-title">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="mask-editor-title" class="modal-title h5">Mask for image 1</h2>
+                <button type="button" class="btn-close" aria-label="Close" @onclick="CloseAsync"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-body-secondary small mb-2">
+                    Paint over the area to change. Only that area is redrawn; the rest of the image stays exactly as it is.
+                </p>
+                <div class="mask-toolbar d-flex align-items-center flex-wrap gap-2 mb-2">
+                    <div class="btn-group" role="group" aria-label="Tool">
+                        <button type="button" class="btn btn-sm @(erasing ? "btn-outline-secondary" : "btn-secondary")" aria-pressed="@(!erasing)" @onclick="() => SetErasingAsync(false)">Brush</button>
+                        <button type="button" class="btn btn-sm @(erasing ? "btn-secondary" : "btn-outline-secondary")" aria-pressed="@erasing" @onclick="() => SetErasingAsync(true)">Eraser</button>
+                    </div>
+                    <label class="d-flex align-items-center gap-2 small mb-0">
+                        Size
+                        <input type="range" class="form-range mask-size" min="@minSize" max="@maxSize" value="@brushSize" disabled="@(!ready)"
+                               @oninput="SetSizeAsync" aria-label="Brush size" />
+                        <span class="text-body-secondary mask-size-value">@brushSize px</span>
+                    </label>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!ready)" title="Undo (Ctrl+Z)" @onclick="UndoAsync">Undo</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!ready)" title="Swap painted and unpainted areas" @onclick="InvertAsync">Invert</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!ready)" @onclick="ClearAsync">Clear</button>
+                </div>
+                <div class="mask-stage">
+                    <canvas @ref="canvas" class="mask-canvas" aria-label="Image 1 with the mask painted in red"></canvas>
+                    @if (!ready)
+                    {
+                        <span class="spinner-border text-secondary mask-loading" aria-label="Loading"></span>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                @if (error != null)
+                {
+                    <span class="me-auto text-danger small" role="status">@error</span>
+                }
+                else
+                {
+                    <span class="me-auto text-body-secondary small">Nothing painted means no mask: image 1 is edited as a whole.</span>
+                }
+                <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Cancel</button>
+                <button type="button" class="btn btn-primary" disabled="@(!ready || saving)" @onclick="SaveAsync">Save mask</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The image the mask is for.</summary>
+    [Parameter, EditorRequired] public byte[] Image { get; set; } = [];
+
+    [Parameter] public string? ContentType { get; set; }
+
+    /// <summary>A mask saved earlier, to carry on editing.</summary>
+    [Parameter] public byte[]? Mask { get; set; }
+
+    /// <summary>Called with the new mask and its tile overlay, or (null, null) when nothing is painted.</summary>
+    [Parameter] public EventCallback<(byte[]? Mask, string? OverlayUrl)> OnSave { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private ElementReference canvas;
+    private bool ready;
+    private bool saving;
+    private bool erasing;
+    private int brushSize = 40;
+    private int minSize = 2;
+    private int maxSize = 400;
+    private string? error;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = await JS.InvokeAsync<OpenResult>("slopFactory.maskEditor.open", canvas, Image, ContentType, Mask, null);
+
+            // Brush sizes are in image pixels, so scale the range to the image.
+            var longest = Math.Max(info.Width, info.Height);
+            minSize = Math.Max(2, longest / 200);
+            maxSize = Math.Max(minSize + 1, longest / 4);
+            brushSize = Math.Clamp(info.Size, minSize, maxSize);
+            ready = true;
+        }
+        catch (JSException ex)
+        {
+            error = $"Couldn't open the image: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SetErasingAsync(bool value)
+    {
+        erasing = value;
+        if (ready)
+        {
+            await JS.InvokeVoidAsync("slopFactory.maskEditor.setErasing", value);
+        }
+    }
+
+    private async Task SetSizeAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var size))
+        {
+            brushSize = size;
+            await JS.InvokeVoidAsync("slopFactory.maskEditor.setSize", size);
+        }
+    }
+
+    private async Task UndoAsync()
+    {
+        await JS.InvokeAsync<int>("slopFactory.maskEditor.undo");
+    }
+
+    private async Task InvertAsync()
+    {
+        await JS.InvokeVoidAsync("slopFactory.maskEditor.invert");
+    }
+
+    private async Task ClearAsync()
+    {
+        await JS.InvokeVoidAsync("slopFactory.maskEditor.clear");
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        try
+        {
+            var mask = await JS.InvokeAsync<byte[]?>("slopFactory.maskEditor.exportMask");
+            var overlay = mask == null ? null : await JS.InvokeAsync<string>("slopFactory.maskEditor.exportOverlay", ThumbnailService.MaxSize);
+            await OnSave.InvokeAsync((mask, overlay));
+        }
+        catch (JSException ex)
+        {
+            error = $"Couldn't save the mask: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private Task CloseAsync()
+    {
+        return OnClose.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("slopFactory.maskEditor.close");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is going away anyway.
+        }
+    }
+
+    private sealed record OpenResult(int Width, int Height, int Size);
+}

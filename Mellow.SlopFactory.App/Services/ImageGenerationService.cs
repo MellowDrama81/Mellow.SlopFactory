@@ -13,6 +13,12 @@ public class ImageGenerationRequest
 	/// <summary>0 images generates from text; 1 to 10 edits image 1 using the rest as references.</summary>
 	public IReadOnlyList<InputImage> Images { get; set; } = [];
 
+	/// <summary>
+	/// A PNG mask for image 1, white where it should change. With a mask, only that area is redrawn (inpainting)
+	/// and the rest of image 1 is kept exactly. Ignored with no images.
+	/// </summary>
+	public byte[]? Mask { get; set; }
+
 	public bool RefinePrompt { get; set; }
 	public bool Thinking { get; set; }
 
@@ -82,13 +88,30 @@ public class ImageGenerationService
 				uploaded.Add(string.IsNullOrEmpty(file.Subfolder) ? file.Filename : $"{file.Subfolder}/{file.Filename}");
 			}
 
-			workflow = QwenImageEditWorkflow.Build(new QwenImageEditOptions
+			if (request.Mask != null)
 			{
-				Prompt = request.Prompt,
-				Images = uploaded,
-				RefinePrompt = request.RefinePrompt,
-				Thinking = request.Thinking,
-			});
+				progress?.Report("Uploading the mask...");
+				using var maskStream = new MemoryStream(request.Mask);
+				var mask = await comfy.UploadImageAsync(maskStream, $"mask-{LibraryService.IdFor(request.Mask)}.png", cancellationToken: cancellationToken);
+				workflow = QwenImageInpaintWorkflow.Build(new QwenImageInpaintOptions
+				{
+					Prompt = request.Prompt,
+					Images = uploaded,
+					Mask = string.IsNullOrEmpty(mask.Subfolder) ? mask.Filename : $"{mask.Subfolder}/{mask.Filename}",
+					RefinePrompt = request.RefinePrompt,
+					Thinking = request.Thinking,
+				});
+			}
+			else
+			{
+				workflow = QwenImageEditWorkflow.Build(new QwenImageEditOptions
+				{
+					Prompt = request.Prompt,
+					Images = uploaded,
+					RefinePrompt = request.RefinePrompt,
+					Thinking = request.Thinking,
+				});
+			}
 		}
 
 		progress?.Report(request.RefinePrompt ? "Improving the prompt and rendering..." : "Rendering...");
