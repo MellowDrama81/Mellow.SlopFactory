@@ -49,6 +49,23 @@ public class CreateSession
 	/// </summary>
 	public bool OutputFolderChosen { get; set; }
 
+	/// <summary>The workflow the inputs call for now: generate, edit or inpaint.</summary>
+	public ImageWorkflowKind WorkflowKind => ImageWorkflows.KindFor(Images.Count, Images.Count > 0 && Images[0].Mask != null);
+
+	/// <summary>The chosen workflow for each kind, so switching between them keeps each choice.</summary>
+	private readonly Dictionary<ImageWorkflowKind, string> workflowChoices = [];
+
+	/// <summary>The workflow that will run for the current inputs.</summary>
+	public ImageWorkflow Workflow => ImageWorkflows.Resolve(WorkflowKind, workflowChoices.GetValueOrDefault(WorkflowKind));
+
+	public void ChooseWorkflow(string? id)
+	{
+		if (id != null)
+		{
+			workflowChoices[WorkflowKind] = id;
+		}
+	}
+
 	/// <summary>The name to save the generated image as, without an extension. Blank names it by date and time.</summary>
 	public string? FileName { get; set; }
 
@@ -83,6 +100,7 @@ public class CreateSession
 			Width = size.Width,
 			Height = size.Height,
 			FileName = FileName,
+			WorkflowId = Workflow.Id,
 		};
 		var folderId = OutputFolderId.Length == 0 ? null : OutputFolderId;
 
@@ -169,6 +187,7 @@ public class CreateSession
 		OutputFolderId = defaultOutputFolderId;
 		OutputFolderChosen = false;
 		FileName = null;
+		workflowChoices.Clear();
 		Status = null;
 		StatusIsError = false;
 		HasNewResults = false;
@@ -188,7 +207,7 @@ public class CreateSession
 		{
 			var thumbnail = await thumbnailService.CreateAsync(result.Image.Data, "image/png");
 			await libraryService.AddAsync(Path.GetFileName(result.Image.FilePath), result.Image.Data, thumbnail,
-				result.LibraryFolderId, new LibraryImageMetadata(LibraryImageSource.Generated, result.Image.Prompt));
+				result.LibraryFolderId, new LibraryImageMetadata(LibraryImageSource.Generated, result.Image.Prompt, Workflow: result.Image.Workflow));
 			result.InLibrary = true;
 			return null;
 		}

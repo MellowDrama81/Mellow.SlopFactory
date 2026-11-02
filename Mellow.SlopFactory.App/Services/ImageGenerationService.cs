@@ -4,7 +4,8 @@ namespace Mellow.SlopFactory.App.Services;
 
 public record InputImage(string FileName, byte[] Data);
 
-public record GeneratedImage(string FilePath, byte[] Data, string Prompt);
+/// <param name="Workflow">The name of the workflow that made it.</param>
+public record GeneratedImage(string FilePath, byte[] Data, string Prompt, string Workflow);
 
 public class ImageGenerationRequest
 {
@@ -18,6 +19,12 @@ public class ImageGenerationRequest
 	/// and the rest of image 1 is kept exactly. Ignored with no images.
 	/// </summary>
 	public byte[]? Mask { get; set; }
+
+	/// <summary>
+	/// Which workflow to run (an <see cref="ImageWorkflows"/> id). One that doesn't suit the inputs, or null, uses the
+	/// default for them.
+	/// </summary>
+	public string? WorkflowId { get; set; }
 
 	public bool RefinePrompt { get; set; }
 	public bool Thinking { get; set; }
@@ -34,7 +41,8 @@ public class ImageGenerationRequest
 }
 
 /// <summary>
-/// Runs the built-in Qwen Image 2.1 workflows: text to image with no input images, edit with 1 to 10.
+/// Runs the built-in workflows (see <see cref="ImageWorkflows"/>): text to image with no input images, edit with 1 to
+/// 10, and inpainting when image 1 has a mask.
 /// </summary>
 public class ImageGenerationService
 {
@@ -67,8 +75,20 @@ public class ImageGenerationService
 		var settings = await settingsService.LoadComfyAsync();
 		using var comfy = new ComfyApi(settings);
 
+		var chosen = ImageWorkflows.Resolve(ImageWorkflows.KindFor(request.Images.Count, request.Mask != null), request.WorkflowId);
 		System.Text.Json.Nodes.JsonObject workflow;
-		if (request.Images.Count == 0)
+		if (chosen.Id == ImageWorkflows.Flux3KleinGenerate)
+		{
+			workflow = Flux3KleinGenerateWorkflow.Build(new Flux3KleinGenerateOptions
+			{
+				Prompt = request.Prompt,
+				UpsamplePrompt = request.RefinePrompt,
+				Thinking = request.Thinking,
+				Width = request.Width,
+				Height = request.Height,
+			});
+		}
+		else if (chosen.Id == ImageWorkflows.QwenGenerate)
 		{
 			workflow = QwenImageGenerateWorkflow.Build(new QwenImageGenerateOptions
 			{
@@ -88,11 +108,11 @@ public class ImageGenerationService
 				uploaded.Add(string.IsNullOrEmpty(file.Subfolder) ? file.Filename : $"{file.Subfolder}/{file.Filename}");
 			}
 
-			if (request.Mask != null)
+			if (chosen.Id == ImageWorkflows.QwenInpaint && request.Mask is { } maskData)
 			{
 				progress?.Report("Uploading the mask...");
-				using var maskStream = new MemoryStream(request.Mask);
-				var mask = await comfy.UploadImageAsync(maskStream, $"mask-{LibraryService.IdFor(request.Mask)}.png", cancellationToken: cancellationToken);
+				using var maskStream = new MemoryStream(maskData);
+				var mask = await comfy.UploadImageAsync(maskStream, $"mask-{LibraryService.IdFor(maskData)}.png", cancellationToken: cancellationToken);
 				workflow = QwenImageInpaintWorkflow.Build(new QwenImageInpaintOptions
 				{
 					Prompt = request.Prompt,
@@ -114,7 +134,7 @@ public class ImageGenerationService
 			}
 		}
 
-		progress?.Report(request.RefinePrompt ? "Improving the prompt and rendering..." : "Rendering...");
+		progress?.Report(request.RefinePrompt ? $"Improving the prompt and rendering with {chosen.Name}..." : $"Rendering with {chosen.Name}...");
 		var outputs = await comfy.RunWorkflowAsync(workflow, cancellationToken);
 
 		Directory.CreateDirectory(OutputDirectory);
@@ -127,7 +147,7 @@ public class ImageGenerationService
 			var stem = name == null ? $"{stamp}-{i + 1}" : i == 0 ? name : $"{name}-{i + 1}";
 			var path = ExportService.UniquePath(Path.Combine(OutputDirectory, stem + extension));
 			await File.WriteAllBytesAsync(path, outputs[i].Data, cancellationToken);
-			results.Add(new GeneratedImage(path, outputs[i].Data, request.Prompt));
+			results.Add(new GeneratedImage(path, outputs[i].Data, request.Prompt, chosen.Name));
 		}
 
 		// The prompt goes next to the first image, under the same name.

@@ -113,6 +113,20 @@
         }
     </div>
 
+    <div class="mb-3">
+        <label for="workflow" class="form-label">
+            Workflow <span class="text-body-secondary">(@KindLabel(Session.WorkflowKind))</span>
+        </label>
+        <select id="workflow" class="form-select size-select" disabled="@Session.Busy"
+                @bind:get="Session.Workflow.Id" @bind:set="Session.ChooseWorkflow">
+            @foreach (var workflow in ImageWorkflows.For(Session.WorkflowKind))
+            {
+                <option value="@workflow.Id">@workflow.Name</option>
+            }
+        </select>
+        <div class="form-text">@Session.Workflow.Description</div>
+    </div>
+
     @if (Session.Images.Count == 0)
     {
         <div class="mb-3">
@@ -341,6 +355,17 @@
         var error = await Session.TryAddToLibraryAsync(result);
         Session.Status = error == null ? "Added to library." : $"Couldn't add to library: {error}";
         Session.StatusIsError = error != null;
+    }
+
+    /// <summary>What the workflows on offer do, for the picker's label.</summary>
+    private static string KindLabel(ImageWorkflowKind kind)
+    {
+        return kind switch
+        {
+            ImageWorkflowKind.Generate => "text to image",
+            ImageWorkflowKind.Edit => "image editing",
+            _ => "inpainting the mask",
+        };
     }
 
     private void SaveMask((byte[]? Mask, string? OverlayUrl) saved)

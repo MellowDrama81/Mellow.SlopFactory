@@ -17,7 +17,8 @@ public static class LibraryImageSource
 /// <param name="Source">How the image got into the library: <see cref="LibraryImageSource"/>.</param>
 /// <param name="Prompt">For a generated image, the prompt it was generated from.</param>
 /// <param name="ComfyCopies">Where ComfyUI servers already have this image, so it needn't be uploaded again.</param>
-public record LibraryImageMetadata(string? Source = null, string? Prompt = null, IReadOnlyList<ComfyCopy>? ComfyCopies = null);
+/// <param name="Workflow">For a generated image, the name of the workflow that made it.</param>
+public record LibraryImageMetadata(string? Source = null, string? Prompt = null, IReadOnlyList<ComfyCopy>? ComfyCopies = null, string? Workflow = null);
 
 /// <summary>A copy of a library image in a ComfyUI server's input folder.</summary>
 /// <param name="Server">The server's base address, as from <see cref="ComfyServer.Key"/>.</param>
