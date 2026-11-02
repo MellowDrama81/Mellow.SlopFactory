@@ -111,17 +111,34 @@ public class ImageGenerationService
 				uploaded.Add(string.IsNullOrEmpty(file.Subfolder) ? file.Filename : $"{file.Subfolder}/{file.Filename}");
 			}
 
-			if (chosen.Id == ImageWorkflows.QwenInpaint && request.Mask is { } maskData)
+			string? maskName = null;
+			if (kind == ImageWorkflowKind.Inpaint && request.Mask is { } maskData)
 			{
 				progress?.Report("Uploading the mask...");
 				using var maskStream = new MemoryStream(maskData);
 				var mask = await comfy.UploadImageAsync(maskStream, $"mask-{LibraryService.IdFor(maskData)}.png", cancellationToken: cancellationToken);
+				maskName = string.IsNullOrEmpty(mask.Subfolder) ? mask.Filename : $"{mask.Subfolder}/{mask.Filename}";
+			}
+
+			if (chosen.Id == ImageWorkflows.QwenInpaint && maskName != null)
+			{
 				workflow = QwenImageInpaintWorkflow.Build(new QwenImageInpaintOptions
 				{
 					Prompt = request.Prompt,
 					Images = uploaded,
-					Mask = string.IsNullOrEmpty(mask.Subfolder) ? mask.Filename : $"{mask.Subfolder}/{mask.Filename}",
+					Mask = maskName,
 					RefinePrompt = request.RefinePrompt,
+					Thinking = request.Thinking,
+				});
+			}
+			else if (chosen.Id == ImageWorkflows.Flux3KleinInpaint && maskName != null)
+			{
+				workflow = Flux3KleinInpaintWorkflow.Build(new Flux3KleinInpaintOptions
+				{
+					Prompt = request.Prompt,
+					Images = uploaded,
+					Mask = maskName,
+					UpsamplePrompt = request.RefinePrompt,
 					Thinking = request.Thinking,
 				});
 			}

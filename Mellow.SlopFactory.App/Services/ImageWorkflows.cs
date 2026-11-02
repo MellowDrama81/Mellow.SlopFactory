@@ -26,6 +26,7 @@ public static class ImageWorkflows
 	public const string QwenEdit = "qwen-image-2.1-edit";
 	public const string Flux3KleinEdit = "flux3-image-klein-edit";
 	public const string QwenInpaint = "qwen-image-2.1-inpaint";
+	public const string Flux3KleinInpaint = "flux3-image-klein-inpaint";
 
 	/// <summary>
 	/// How many images FLUX 3 Klein edits are offered with: the same 10 as Qwen. On Comfy Cloud it handled more (21
@@ -41,6 +42,7 @@ public static class ImageWorkflows
 		new(QwenEdit, "Qwen Image 2.1 Edit", "Changes image 1 as the prompt describes, using any other images as references.", ImageWorkflowKind.Edit, Core.QwenImageEditOptions.MaxImages),
 		new(Flux3KleinEdit, "FLUX 3 Image Klein Edit", "Black Forest Labs' FLUX 3 Klein. The output takes image 1's shape; extra images are shrunk to keep many references affordable.", ImageWorkflowKind.Edit, Flux3KleinEditMaxImages),
 		new(QwenInpaint, "Qwen Image 2.1 Inpaint", "Redraws only the masked area of image 1; everything else stays exactly as it is.", ImageWorkflowKind.Inpaint, Core.QwenImageInpaintOptions.MaxImages),
+		new(Flux3KleinInpaint, "FLUX 3 Image Klein Inpaint", "Black Forest Labs' FLUX 3 Klein, redrawing only the masked area of image 1; extra images are references, shrunk as for edits.", ImageWorkflowKind.Inpaint, Flux3KleinEditMaxImages),
 	];
 
 	/// <summary>The most input images any workflow takes, so the most the Create page accepts.</summary>
