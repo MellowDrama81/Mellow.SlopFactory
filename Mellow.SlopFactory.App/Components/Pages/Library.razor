@@ -194,9 +194,9 @@ else
                     else if (!selecting)
                     {
                         <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => OpenAsync(image)">Open</button>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" @onclick="() => SaveAsync(image)">Save as...</button>
-                            <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" @onclick="() => confirmDeleteId = image.Id">Remove</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Open" aria-label="Open @image.FileName" @onclick="() => OpenAsync(image)"><Icon Name="open" /></button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" aria-label="Save a copy of @image.FileName" @onclick="() => SaveAsync(image)"><Icon Name="save" /></button>
+                            <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" aria-label="Remove @image.FileName from library" @onclick="() => confirmDeleteId = image.Id"><Icon Name="trash" /></button>
                         </div>
                     }
                 </figcaption>
