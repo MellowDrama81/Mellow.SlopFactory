@@ -1,0 +1,371 @@
+@page "/"
+@page "/create"
+@implements IDisposable
+@inject ImageGenerationService ImageGenerationService
+@inject SettingsService SettingsService
+@inject LibraryService LibraryService
+@inject ThumbnailService ThumbnailService
+@inject CreateSession Session
+@inject ExportService ExportService
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <h1 class="mb-0">Create</h1>
+    <button class="btn btn-outline-secondary" type="button" disabled="@Session.Busy"
+            title="Clear the prompt, images, options and results. Generated images stay in the library." @onclick="Reset">Reset</button>
+</div>
+
+@if (comfyNotConfigured)
+{
+    <div class="alert alert-warning">
+        No Comfy server is set, so <code>http://127.0.0.1:8188</code> will be used.
+        Set one in <a href="settings">Settings</a>.
+    </div>
+}
+
+<div class="create-layout">
+<div class="create-form">
+    <div class="mb-3">
+        <label for="prompt" class="form-label">Prompt</label>
+        <textarea id="prompt" class="form-control" rows="4" disabled="@Session.Busy"
+                  placeholder="@(Session.Images.Count == 0 ? "Describe the image to generate" : "Describe the edit, e.g. Put the hat from <image2> on the person in <image1>")"
+                  @bind="Session.Prompt" @bind:event="oninput"></textarea>
+        @if (Session.Images.Count == 1)
+        {
+            <div class="form-text">Refer to the image as &lt;image1&gt;.</div>
+        }
+        else if (Session.Images.Count > 1)
+        {
+            <div class="form-text">Refer to images as &lt;image1&gt; ... &lt;image@(Session.Images.Count)&gt;. Image 1 is the one being edited.</div>
+        }
+    </div>
+
+    <div class="mb-3">
+        <div class="d-flex align-items-baseline justify-content-between">
+            <span class="form-label">Images <span class="text-body-secondary">(@Session.Images.Count of @ImageGenerationService.MaxImages, optional)</span></span>
+            @if (Session.Images.Count > 0 && !Session.Busy)
+            {
+                <button class="btn btn-link btn-sm p-0" type="button" @onclick="() => Session.Images.Clear()">Remove all</button>
+            }
+        </div>
+
+        <div class="image-grid">
+            @for (var i = 0; i < Session.Images.Count; i++)
+            {
+                var index = i;
+                var image = Session.Images[index];
+                <figure class="image-tile">
+                    <img src="@image.DataUrl" alt="@image.Input.FileName" />
+                    <figcaption>
+                        <span class="badge text-bg-dark">image@(index + 1)</span>
+                        @if (!Session.Busy)
+                        {
+                            <span class="tile-actions">
+                                @if (index > 0)
+                                {
+                                    <button class="btn btn-light btn-sm" type="button" title="Move earlier" @onclick="() => MoveEarlier(index)">&larr;</button>
+                                }
+                                <button class="btn btn-light btn-sm" type="button" title="Remove" @onclick="() => Session.Images.RemoveAt(index)">&times;</button>
+                            </span>
+                        }
+                    </figcaption>
+                </figure>
+            }
+
+            @if (Session.Images.Count < ImageGenerationService.MaxImages && !Session.Busy)
+            {
+                <label class="image-tile add-tile">
+                    <InputFile OnChange="AddImagesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" />
+                    <span>+ Add images</span>
+                </label>
+                <button class="image-tile add-tile" type="button" @onclick="() => showLibraryPicker = true">
+                    <span>From library</span>
+                </button>
+            }
+        </div>
+        @if (imageError != null)
+        {
+            <div class="text-danger small mt-1">@imageError</div>
+        }
+        else
+        {
+            <div class="form-text">
+                Images you add are also saved to <a href="@uploadFolder.Url">@uploadFolder.Label</a>
+                (change this in <a href="settings">Settings</a>).
+            </div>
+        }
+    </div>
+
+    @if (Session.Images.Count == 0)
+    {
+        <div class="mb-3">
+            <label for="size" class="form-label">Size</label>
+            <select id="size" class="form-select size-select" disabled="@Session.Busy" @bind="Session.SizeKey">
+                @foreach (var size in CreateSession.Sizes)
+                {
+                    <option value="@size.Key">@size.Label</option>
+                }
+            </select>
+        </div>
+    }
+
+    <div class="mb-3">
+        <div class="form-check form-switch">
+            <input id="refine" class="form-check-input" type="checkbox" role="switch" disabled="@Session.Busy" @bind="Session.RefinePrompt" />
+            <label for="refine" class="form-check-label">Improve prompt</label>
+        </div>
+        <div class="form-check form-switch">
+            <input id="thinking" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !Session.RefinePrompt)" @bind="Session.Thinking" />
+            <label for="thinking" class="form-check-label">Thinking <span class="text-body-secondary">(recommended with Improve prompt)</span></label>
+        </div>
+    </div>
+
+    <div class="output-options mb-3">
+        <div>
+            <label for="output-folder" class="form-label">Save to</label>
+            <select id="output-folder" class="form-select" disabled="@Session.Busy"
+                    @bind="Session.OutputFolderId" @bind:after="() => Session.OutputFolderChosen = true">
+                <FolderOptions Folders="folders" DefaultId="@(defaultOutputFolderId ?? "")" />
+            </select>
+        </div>
+        <div>
+            <label for="file-name" class="form-label">File name <span class="text-body-secondary">(optional)</span></label>
+            <input id="file-name" class="form-control" disabled="@Session.Busy" placeholder="Date and time, e.g. @DateTime.Now.ToString("yyyyMMdd-HHmmss")-1"
+                   spellcheck="false" @bind="Session.FileName" @bind:event="oninput" />
+            @if (ImageGenerationService.CleanFileName(Session.FileName) is string cleaned)
+            {
+                <div class="form-text">Saved as @cleaned plus the image's own extension, e.g. @(cleaned).png.</div>
+            }
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-primary" type="button" disabled="@(Session.Busy || string.IsNullOrWhiteSpace(Session.Prompt))" @onclick="Session.GenerateAsync">
+            @(Session.Images.Count == 0 ? "Generate" : "Edit image")
+        </button>
+        @if (Session.Busy)
+        {
+            <button class="btn btn-outline-secondary" type="button" @onclick="Session.Cancel">Cancel</button>
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+        }
+        @if (Session.Status != null)
+        {
+            <span class="@(Session.StatusIsError ? "text-danger" : "text-body-secondary")" role="status">@Session.Status</span>
+        }
+    </div>
+</div>
+
+<section class="results" tabindex="-1" @ref="resultsSection">
+    @if (Session.Busy)
+    {
+        <div class="result-placeholder">
+            <span class="spinner-border text-secondary" aria-hidden="true"></span>
+            <span>@Session.Status</span>
+        </div>
+    }
+    else if (Session.Results.Count > 0)
+    {
+        <h2 class="h5">Result</h2>
+        @foreach (var result in Session.Results)
+        {
+            <figure class="result">
+                <img src="@result.DataUrl" alt="Generated image" />
+                <figcaption class="d-flex flex-wrap align-items-center gap-2">
+                    <span class="text-body-secondary small text-truncate">@result.Image.FilePath</span>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => OpenAsync(result.Image.FilePath)">Open</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" @onclick="() => SaveAsync(result)">Save as...</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" disabled="@(Session.Busy || Session.Images.Count >= ImageGenerationService.MaxImages)"
+                            title="Add this result as an input image" @onclick="() => UseAsInput(result)">Use as input</button>
+                    @if (result.InLibrary)
+                    {
+                        <a class="btn btn-link btn-sm text-nowrap" href="library" title="Generated images are added to the library automatically">In library</a>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" type="button" disabled="@result.SavingToLibrary"
+                                @onclick="() => AddToLibraryAsync(result)">Add to library</button>
+                    }
+                </figcaption>
+            </figure>
+        }
+    }
+</section>
+</div>
+
+@if (showLibraryPicker)
+{
+    <LibraryPicker MaxSelectable="@(ImageGenerationService.MaxImages - Session.Images.Count)" FirstImageNumber="@(Session.Images.Count + 1)"
+                   OnAdd="AddFromLibrary" OnClose="() => showLibraryPicker = false" />
+}
+
+@code {
+    private const long MaxFileSize = 25 * 1024 * 1024;
+
+    private bool comfyNotConfigured;
+    private string? imageError;
+    private ElementReference resultsSection;
+    private bool showLibraryPicker;
+    private (string Url, string Label) uploadFolder = ("library", "the library");
+    private IReadOnlyList<LibraryFolder> folders = [];
+    private string? defaultOutputFolderId;
+
+    private List<CreateSession.InputItem> images => Session.Images;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnSessionChanged;
+
+        folders = await LibraryService.GetFoldersAsync();
+        var library = SettingsService.LoadLibrary();
+        uploadFolder = Describe(folders, library.UploadedFolderId);
+
+        // The output folder starts as the one in Settings; once the user picks another it stays until they change it.
+        // A folder that's been deleted since falls back to the default.
+        defaultOutputFolderId = folders.Any(f => f.Id == library.GeneratedFolderId) ? library.GeneratedFolderId : null;
+        if (!Session.OutputFolderChosen || (Session.OutputFolderId.Length > 0 && folders.All(f => f.Id != Session.OutputFolderId)))
+        {
+            Session.OutputFolderId = defaultOutputFolderId ?? "";
+            Session.OutputFolderChosen = false;
+        }
+
+        try
+        {
+            comfyNotConfigured = string.IsNullOrWhiteSpace((await SettingsService.LoadComfyAsync()).BaseUrl);
+        }
+        catch
+        {
+            // The warning is only a hint; generation reports real connection problems.
+        }
+    }
+
+    /// <summary>A link to a library folder and its name for the hint text. A missing folder means the top of the library.</summary>
+    private static (string Url, string Label) Describe(IReadOnlyList<LibraryFolder> folders, string? folderId)
+    {
+        var path = LibraryService.PathTo(folders, folderId);
+        return path.Count == 0
+            ? ("library", "the library")
+            : ($"library?folder={Uri.EscapeDataString(path[^1].Id)}", "Library / " + string.Join(" / ", path.Select(f => f.Name)));
+    }
+
+    private void Reset()
+    {
+        imageError = null;
+        Session.Reset(defaultOutputFolderId ?? "");
+    }
+
+    private void OnSessionChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AddImagesAsync(InputFileChangeEventArgs e)
+    {
+        imageError = null;
+        var free = ImageGenerationService.MaxImages - images.Count;
+        var files = e.GetMultipleFiles(maximumFileCount: int.MaxValue);
+        if (files.Count > free)
+        {
+            imageError = $"Only {ImageGenerationService.MaxImages} images are allowed; the first {free} were added.";
+        }
+
+        foreach (var file in files.Take(free))
+        {
+            if (file.Size > MaxFileSize)
+            {
+                imageError = $"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB.";
+                continue;
+            }
+
+            using var stream = file.OpenReadStream(MaxFileSize);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var input = new InputImage(file.Name, buffer.ToArray());
+
+            // Keep a copy in the library so it can be picked again later. Failing that shouldn't stop it being used now.
+            byte[]? thumbnail = null;
+            try
+            {
+                thumbnail = await ThumbnailService.CreateAsync(input.Data, LibraryService.ContentTypeFor(file.Name));
+                await LibraryService.AddAsync(file.Name, input.Data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
+            }
+            catch (Exception ex)
+            {
+                imageError = $"{file.Name} was added, but couldn't be saved to the library: {ex.Message}";
+            }
+
+            images.Add(thumbnail != null
+                ? new CreateSession.InputItem(input, $"data:image/jpeg;base64,{Convert.ToBase64String(thumbnail)}")
+                : CreateSession.InputItem.FromData(input, file.ContentType));
+        }
+    }
+
+    private void AddFromLibrary(IReadOnlyList<(LibraryImage Image, byte[] Data, string ThumbnailDataUrl)> picked)
+    {
+        imageError = null;
+        foreach (var (image, data, thumbnailDataUrl) in picked.Take(ImageGenerationService.MaxImages - images.Count))
+        {
+            images.Add(new CreateSession.InputItem(new InputImage(image.FileName, data), thumbnailDataUrl));
+        }
+
+        showLibraryPicker = false;
+    }
+
+    // Retry for a result that couldn't be added automatically.
+    private async Task AddToLibraryAsync(CreateSession.ResultItem result)
+    {
+        var error = await Session.TryAddToLibraryAsync(result);
+        Session.Status = error == null ? "Added to library." : $"Couldn't add to library: {error}";
+        Session.StatusIsError = error != null;
+    }
+
+    private void MoveEarlier(int index)
+    {
+        (images[index - 1], images[index]) = (images[index], images[index - 1]);
+    }
+
+    private void UseAsInput(CreateSession.ResultItem result)
+    {
+        if (images.Count < ImageGenerationService.MaxImages)
+        {
+            images.Add(new CreateSession.InputItem(new InputImage(Path.GetFileName(result.Image.FilePath), result.Image.Data), result.DataUrl));
+        }
+    }
+
+    private async Task SaveAsync(CreateSession.ResultItem result)
+    {
+        try
+        {
+            if (await ExportService.SaveAsync(Path.GetFileName(result.Image.FilePath), result.Image.Data) is string path)
+            {
+                Session.Status = $"Saved to {path}.";
+                Session.StatusIsError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Session.Status = $"Couldn't save: {ex.Message}";
+            Session.StatusIsError = true;
+        }
+    }
+
+    private static async Task OpenAsync(string path)
+    {
+        await Launcher.Default.OpenAsync(new OpenFileRequest("Open image", new ReadOnlyFile(path)));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Results that finished while this page was showing, or while the user was elsewhere.
+        if (Session.HasNewResults && !Session.Busy)
+        {
+            // Focusing the section scrolls it into view when the form and result are stacked.
+            Session.HasNewResults = false;
+            await resultsSection.FocusAsync(preventScroll: false);
+        }
+    }
+
+    // Leaving the page doesn't stop a generation: the session keeps it running and adds the results to the library.
+    public void Dispose()
+    {
+        Session.Changed -= OnSessionChanged;
+    }
+}

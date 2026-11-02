@@ -1,0 +1,155 @@
+@page "/settings"
+@inject SettingsService SettingsService
+@inject LibraryService LibraryService
+
+<h1>Settings</h1>
+
+@if (!loaded)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <section class="settings-section">
+        <h2 class="h5">ComfyUI</h2>
+
+        <div class="mb-3">
+            <label for="comfy-base-url" class="form-label">Comfy Base URL</label>
+            <input id="comfy-base-url" class="form-control @(baseUrlError != null ? "is-invalid" : null)" type="url"
+                   placeholder="https://cloud.comfy.org" @bind="baseUrl" @bind:event="oninput" />
+            @if (baseUrlError != null)
+            {
+                <div class="invalid-feedback">@baseUrlError</div>
+            }
+            <div class="form-text">Use https://cloud.comfy.org for Comfy Cloud, or your own server, e.g. http://127.0.0.1:8188.</div>
+        </div>
+
+        <div class="mb-3">
+            <label for="comfy-api-key" class="form-label">Comfy API Key</label>
+            <div class="input-group">
+                <input id="comfy-api-key" class="form-control" type="@(showApiKey ? "text" : "password")"
+                       autocomplete="off" spellcheck="false" @bind="apiKey" @bind:event="oninput" />
+                <button class="btn btn-outline-secondary" type="button" @onclick="() => showApiKey = !showApiKey">
+                    @(showApiKey ? "Hide" : "Show")
+                </button>
+            </div>
+            <div class="form-text">Stored in the device's secure storage.</div>
+        </div>
+    </section>
+
+    <section class="settings-section">
+        <h2 class="h5">Library</h2>
+
+        <div class="mb-3">
+            <label for="uploaded-folder" class="form-label">Folder for images added on the Create page</label>
+            <select id="uploaded-folder" class="form-select" @bind="uploadedFolderId">
+                <FolderOptions Folders="folders" />
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="generated-folder" class="form-label">Folder for generated images</label>
+            <select id="generated-folder" class="form-select" @bind="generatedFolderId">
+                <FolderOptions Folders="folders" />
+            </select>
+            <div class="form-text">Make folders on the <a href="library">Library</a> page. If a chosen folder is deleted, images go to the top of the library.</div>
+        </div>
+    </section>
+
+    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">Save</button>
+
+    @if (statusMessage != null)
+    {
+        <p class="mt-3 @(statusIsError ? "text-danger" : "text-success")" role="status">@statusMessage</p>
+    }
+}
+
+@code {
+    private bool loaded;
+    private bool saving;
+    private string? baseUrl;
+    private string? apiKey;
+    private bool showApiKey;
+    private string? baseUrlError;
+    private string? statusMessage;
+    private IReadOnlyList<LibraryFolder> folders = [];
+
+    // "" is the top of the library, which the selects need as a value.
+    private string uploadedFolderId = "";
+    private string generatedFolderId = "";
+    private bool statusIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var comfy = await SettingsService.LoadComfyAsync();
+            baseUrl = comfy.BaseUrl;
+            apiKey = comfy.ApiKey;
+
+            folders = await LibraryService.GetFoldersAsync();
+            var library = SettingsService.LoadLibrary();
+            uploadedFolderId = folders.Any(f => f.Id == library.UploadedFolderId) ? library.UploadedFolderId! : "";
+            generatedFolderId = folders.Any(f => f.Id == library.GeneratedFolderId) ? library.GeneratedFolderId! : "";
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Couldn't load settings: {ex.Message}", isError: true);
+        }
+
+        loaded = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        statusMessage = null;
+        baseUrlError = ValidateBaseUrl(baseUrl);
+        if (baseUrlError != null)
+        {
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            await SettingsService.SaveComfyAsync(new Mellow.SlopFactory.Core.ComfyApiSettings
+            {
+                BaseUrl = baseUrl,
+                ApiKey = apiKey,
+            });
+            SettingsService.SaveLibrary(new LibrarySettings(NullIfEmpty(uploadedFolderId), NullIfEmpty(generatedFolderId)));
+            SetStatus("Settings saved.", isError: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Couldn't save settings: {ex.Message}", isError: true);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private static string? ValidateBaseUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? null
+            : "Enter a full http:// or https:// URL.";
+    }
+
+    private static string? NullIfEmpty(string value)
+    {
+        return value.Length == 0 ? null : value;
+    }
+
+    private void SetStatus(string message, bool isError)
+    {
+        statusMessage = message;
+        statusIsError = isError;
+    }
+}

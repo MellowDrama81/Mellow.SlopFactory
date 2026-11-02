@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Mellow.SlopFactory.App/Mellow.SlopFactory.App.csproj" />
+  <Project Path="Mellow.SlopFactory.Core/Mellow.SlopFactory.Core.csproj" Id="a759f69e-9362-4ff3-9a4b-475fa57235c0" />
+</Solution>

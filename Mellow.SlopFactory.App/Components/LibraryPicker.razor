@@ -1,0 +1,155 @@
+@inject LibraryService LibraryService
+
+<div class="modal-backdrop fade show"></div>
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="library-picker-title" @onclick="CloseAsync">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" @onclick:stopPropagation="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="library-picker-title" class="modal-title h5">Choose from library</h2>
+                <button type="button" class="btn-close" aria-label="Close" @onclick="CloseAsync"></button>
+            </div>
+            <div class="modal-body">
+                @if (images == null)
+                {
+                    <p>Loading...</p>
+                }
+                else if (images.Count == 0)
+                {
+                    <p class="mb-0">The library is empty. Add images on the <a href="library">Library</a> page.</p>
+                }
+                else
+                {
+                    <p class="text-body-secondary small">
+                        Pick up to @MaxSelectable. Images are added in the order you pick them, from any folder.
+                    </p>
+                    @if (folders.Count > 0)
+                    {
+                        <nav aria-label="Folder">
+                            <ol class="breadcrumb mb-2">
+                                @if (CurrentPath.Count == 0)
+                                {
+                                    <li class="breadcrumb-item active" aria-current="page">Library</li>
+                                }
+                                else
+                                {
+                                    <li class="breadcrumb-item"><a href="" @onclick="() => folderId = null" @onclick:preventDefault="true">Library</a></li>
+                                    @foreach (var folder in CurrentPath)
+                                    {
+                                        if (folder == CurrentPath[^1])
+                                        {
+                                            <li class="breadcrumb-item active" aria-current="page">@folder.Name</li>
+                                        }
+                                        else
+                                        {
+                                            <li class="breadcrumb-item"><a href="" @onclick="() => folderId = folder.Id" @onclick:preventDefault="true">@folder.Name</a></li>
+                                        }
+                                    }
+                                }
+                            </ol>
+                        </nav>
+                    }
+                    <div class="picker-grid">
+                        @foreach (var folder in folders.Where(f => f.ParentId == folderId))
+                        {
+                            var picked = selected.Count(i => IsInside(i.FolderId, folder.Id));
+                            <button type="button" class="picker-tile picker-folder" title="Open @folder.Name" @onclick="() => folderId = folder.Id">
+                                <FolderIcon />
+                                <span class="picker-folder-name text-truncate">@folder.Name</span>
+                                @if (picked > 0)
+                                {
+                                    <span class="picker-folder-count">@picked picked</span>
+                                }
+                            </button>
+                        }
+                        @foreach (var image in images.Where(i => i.FolderId == folderId))
+                        {
+                            var order = selected.IndexOf(image);
+                            var full = order < 0 && selected.Count >= MaxSelectable;
+                            <button type="button" class="picker-tile @(order >= 0 ? "selected" : null)" disabled="@full"
+                                    title="@image.FileName" aria-pressed="@(order >= 0)" @onclick="() => Toggle(image)">
+                                <img src="@thumbnails.GetValueOrDefault(image.Id)" alt="@image.FileName" loading="lazy" />
+                                @if (order >= 0)
+                                {
+                                    <span class="picker-order">@(FirstImageNumber + order)</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                    @if (!images.Any(i => i.FolderId == folderId) && !folders.Any(f => f.ParentId == folderId))
+                    {
+                        <p class="text-body-secondary mb-0">This folder is empty.</p>
+                    }
+                }
+            </div>
+            <div class="modal-footer">
+                <span class="me-auto text-body-secondary small">@selected.Count of @MaxSelectable selected</span>
+                <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Cancel</button>
+                <button type="button" class="btn btn-primary" disabled="@(selected.Count == 0 || adding)" @onclick="AddAsync">
+                    Add @(selected.Count == 1 ? "1 image" : $"{selected.Count} images")
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>How many more images the caller can take.</summary>
+    [Parameter, EditorRequired] public int MaxSelectable { get; set; }
+
+    /// <summary>The image number the first picked image will get, for the order badges.</summary>
+    [Parameter] public int FirstImageNumber { get; set; } = 1;
+
+    [Parameter] public EventCallback<IReadOnlyList<(LibraryImage Image, byte[] Data, string ThumbnailDataUrl)>> OnAdd { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private IReadOnlyList<LibraryImage>? images;
+    private IReadOnlyList<LibraryFolder> folders = [];
+    private string? folderId;
+    private readonly Dictionary<string, string> thumbnails = [];
+    private readonly List<LibraryImage> selected = [];
+    private bool adding;
+
+    protected override async Task OnInitializedAsync()
+    {
+        folders = await LibraryService.GetFoldersAsync();
+        images = await LibraryService.GetAllAsync();
+        foreach (var image in images)
+        {
+            thumbnails[image.Id] = await LibraryService.GetThumbnailDataUrlAsync(image);
+        }
+    }
+
+    private IReadOnlyList<LibraryFolder> CurrentPath => LibraryService.PathTo(folders, folderId);
+
+    /// <summary>Whether an image's folder is <paramref name="ancestorId"/> or somewhere inside it.</summary>
+    private bool IsInside(string? imageFolderId, string ancestorId)
+    {
+        return LibraryService.PathTo(folders, imageFolderId).Any(f => f.Id == ancestorId);
+    }
+
+    private void Toggle(LibraryImage image)
+    {
+        if (!selected.Remove(image) && selected.Count < MaxSelectable)
+        {
+            selected.Add(image);
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        adding = true;
+        var picked = new List<(LibraryImage, byte[], string)>();
+        foreach (var image in selected)
+        {
+            picked.Add((image, await LibraryService.ReadAsync(image), thumbnails[image.Id]));
+        }
+
+        await OnAdd.InvokeAsync(picked);
+    }
+
+    private Task CloseAsync()
+    {
+        return OnClose.InvokeAsync();
+    }
+}

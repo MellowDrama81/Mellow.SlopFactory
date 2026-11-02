@@ -1,0 +1,635 @@
+@page "/library"
+@implements IDisposable
+@inject LibraryService LibraryService
+@inject ThumbnailService ThumbnailService
+@inject NavigationManager Navigation
+@inject ExportService ExportService
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <h1 class="mb-0">Library</h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" type="button" disabled="@(images == null || selecting)" @onclick="StartNewFolder">New folder</button>
+        <label class="btn btn-primary @(adding || selecting ? "disabled" : null)">
+            <InputFile OnChange="AddImagesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" disabled="@(adding || selecting)" />
+            @(adding ? "Adding..." : "Add images")
+        </label>
+    </div>
+</div>
+
+<p class="text-body-secondary">Images kept here can be picked as inputs on the <a href="">Create</a> page. Images you add or generate there are saved here automatically.</p>
+
+<nav aria-label="Folder">
+    <ol class="breadcrumb library-path">
+        @if (path.Count == 0)
+        {
+            <li class="breadcrumb-item active" aria-current="page">Library</li>
+        }
+        else
+        {
+            <li class="breadcrumb-item"><a href="@FolderUrl(null)">Library</a></li>
+            @foreach (var folder in path)
+            {
+                if (folder == path[^1])
+                {
+                    <li class="breadcrumb-item active" aria-current="page">@folder.Name</li>
+                }
+                else
+                {
+                    <li class="breadcrumb-item"><a href="@FolderUrl(folder.Id)">@folder.Name</a></li>
+                }
+            }
+        }
+    </ol>
+</nav>
+
+@if (status != null)
+{
+    <p class="@(statusIsError ? "text-danger" : "text-success")" role="status">@status</p>
+}
+
+@if (newFolderName != null)
+{
+    <form class="folder-form d-flex gap-2 mb-3" @onsubmit="CreateFolderAsync">
+        <input class="form-control" id="new-folder-name" aria-label="New folder name" placeholder="Folder name" @bind="newFolderName" @bind:event="oninput" @ref="newFolderInput" />
+        <button class="btn btn-primary" type="submit" disabled="@string.IsNullOrWhiteSpace(newFolderName)">Create</button>
+        <button class="btn btn-outline-secondary" type="button" @onclick="() => newFolderName = null">Cancel</button>
+    </form>
+}
+
+@if (images == null)
+{
+    <p>Loading...</p>
+}
+else if (folders.Count == 0 && images.Count == 0 && path.Count == 0)
+{
+    <div class="library-empty">
+        <p class="mb-1">The library is empty.</p>
+        <p class="text-body-secondary mb-0">Add images here. Images you add or generate on the Create page are saved here automatically.</p>
+    </div>
+}
+else
+{
+    <div class="library-toolbar d-flex align-items-center flex-wrap gap-2 mb-2">
+        @if (selecting)
+        {
+            <span class="small me-1">@SelectedCount selected</span>
+            @if (MoveTargets().Count == 0)
+            {
+                <span class="text-body-secondary small">Create a folder to move images into.</span>
+            }
+            else
+            {
+                <select class="form-select form-select-sm move-target" aria-label="Move to folder" @bind="moveTarget">
+                    @foreach (var (id, label) in MoveTargets())
+                    {
+                        <option value="@id">@label</option>
+                    }
+                </select>
+                <button class="btn btn-primary btn-sm" type="button" disabled="@(SelectedCount == 0)" @onclick="MoveSelectedAsync">Move</button>
+            }
+            <button class="btn btn-outline-secondary btn-sm" type="button" disabled="@(SelectedCount == 0 || exporting)"
+                    title="Copy the selected images, and everything in the selected folders, to a folder you choose" @onclick="ExportSelectedAsync">
+                @(exporting ? "Exporting..." : "Export")
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="SelectAll">Select all</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StopSelecting">Done</button>
+        }
+        else
+        {
+            <span class="text-body-secondary small me-auto">@Summary()</span>
+            @if (folders.Count + images.Count > 0)
+            {
+                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StartSelecting">Select</button>
+            }
+        }
+    </div>
+
+    @if (folders.Count + images.Count == 0)
+    {
+        <div class="library-empty">
+            <p class="mb-1">This folder is empty.</p>
+            <p class="text-body-secondary mb-0">Add images while you're here, or move images in from other folders.</p>
+        </div>
+    }
+
+    <div class="library-grid">
+        @foreach (var folder in folders)
+        {
+            var isSelected = selectedFolders.Contains(folder.Id);
+            <figure class="library-tile folder-tile @(isSelected ? "selected" : null)">
+                @if (selecting)
+                {
+                    <button class="folder-open" type="button" aria-pressed="@isSelected" title="@folder.Name" @onclick="() => Toggle(selectedFolders, folder.Id)">
+                        <FolderIcon />
+                        <span class="tile-check" aria-hidden="true">@(isSelected ? "✓" : null)</span>
+                    </button>
+                }
+                else
+                {
+                    <a class="folder-open" href="@FolderUrl(folder.Id)" title="Open @folder.Name">
+                        <FolderIcon />
+                    </a>
+                }
+                <figcaption>
+                    @if (renamingId == folder.Id)
+                    {
+                        <form class="d-flex flex-column gap-1" @onsubmit="RenameFolderAsync">
+                            <input class="form-control form-control-sm" aria-label="Folder name" @bind="renameText" @bind:event="oninput" @ref="renameInput" />
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-primary btn-sm" type="submit" disabled="@string.IsNullOrWhiteSpace(renameText)">Save</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => renamingId = null">Cancel</button>
+                            </div>
+                        </form>
+                    }
+                    else
+                    {
+                        <div class="text-truncate small fw-semibold" title="@folder.Name">@folder.Name</div>
+                        <div class="text-body-secondary small">@ItemCount(folder.Id)</div>
+                        @if (confirmDeleteFolderId == folder.Id)
+                        {
+                            <div class="small mt-1">Its contents move to @(path.Count == 0 ? "the top of the library" : $"\"{path[^1].Name}\"").</div>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteFolderAsync(folder)">Delete</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => confirmDeleteFolderId = null">Keep</button>
+                            </div>
+                        }
+                        else if (!selecting)
+                        {
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => StartRename(folder)">Rename</button>
+                                <button class="btn btn-outline-danger btn-sm" type="button" title="Delete folder" @onclick="() => confirmDeleteFolderId = folder.Id">Delete</button>
+                            </div>
+                        }
+                    }
+                </figcaption>
+            </figure>
+        }
+
+        @foreach (var image in images)
+        {
+            var isSelected = selectedImages.Contains(image.Id);
+            <figure class="library-tile @(isSelected ? "selected" : null)">
+                @if (selecting)
+                {
+                    <button class="image-select" type="button" aria-pressed="@isSelected" title="@image.FileName" @onclick="() => Toggle(selectedImages, image.Id)">
+                        <img src="@thumbnails.GetValueOrDefault(image.Id)" alt="@image.FileName" loading="lazy" />
+                        <span class="tile-check" aria-hidden="true">@(isSelected ? "✓" : null)</span>
+                    </button>
+                }
+                else
+                {
+                    <img src="@thumbnails.GetValueOrDefault(image.Id)" alt="@image.FileName" loading="lazy"
+                         title="@(image.Metadata?.Prompt is { } prompt ? $"Prompt: {prompt}" : image.FileName)" />
+                }
+                <figcaption>
+                    <div class="text-truncate small" title="@image.FileName">@image.FileName</div>
+                    <div class="text-body-secondary small">@image.AddedAt.LocalDateTime.ToString("d MMM yyyy")</div>
+                    @if (confirmDeleteId == image.Id)
+                    {
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteAsync(image)">Delete</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => confirmDeleteId = null">Keep</button>
+                        </div>
+                    }
+                    else if (!selecting)
+                    {
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => OpenAsync(image)">Open</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" @onclick="() => SaveAsync(image)">Save as...</button>
+                            <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" @onclick="() => confirmDeleteId = image.Id">Remove</button>
+                        </div>
+                    }
+                </figcaption>
+            </figure>
+        }
+    </div>
+}
+
+@code {
+    private const long MaxFileSize = 25 * 1024 * 1024;
+
+    /// <summary>The open folder's id, or null for the top of the library.</summary>
+    [SupplyParameterFromQuery] public string? Folder { get; set; }
+
+    private IReadOnlyList<LibraryFolder> allFolders = [];
+    private IReadOnlyList<LibraryImage> allImages = [];
+    private IReadOnlyList<LibraryFolder> path = [];
+    private IReadOnlyList<LibraryFolder> folders = [];
+    private IReadOnlyList<LibraryImage>? images;
+    private readonly Dictionary<string, string> thumbnails = [];
+    private bool adding;
+    private string? confirmDeleteId;
+    private string? confirmDeleteFolderId;
+    private string? status;
+    private bool statusIsError;
+
+    private string? newFolderName;
+    private ElementReference newFolderInput;
+    private string? renamingId;
+    private string? renameText;
+    private ElementReference renameInput;
+    private bool focusPending;
+
+    private bool selecting;
+    private readonly HashSet<string> selectedImages = [];
+    private readonly HashSet<string> selectedFolders = [];
+    private string moveTarget = "";
+    private bool exporting;
+
+    private string? CurrentFolderId => path.Count == 0 ? null : path[^1].Id;
+
+    private int SelectedCount => selectedImages.Count + selectedFolders.Count;
+
+    protected override void OnInitialized()
+    {
+        LibraryService.Changed += OnLibraryChanged;
+    }
+
+    // Picks up images added elsewhere while this page is open, e.g. a generation finishing in the background.
+    private void OnLibraryChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        LibraryService.Changed -= OnLibraryChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Leaving a folder ends whatever was in progress there.
+        newFolderName = null;
+        renamingId = null;
+        confirmDeleteId = null;
+        confirmDeleteFolderId = null;
+        status = null;
+        StopSelecting();
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusPending)
+        {
+            focusPending = false;
+            await (renamingId != null ? renameInput : newFolderInput).FocusAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        allFolders = await LibraryService.GetFoldersAsync();
+        allImages = await LibraryService.GetAllAsync();
+
+        // A folder that's gone (deleted, or a stale link) shows the top of the library.
+        path = LibraryService.PathTo(allFolders, Folder);
+        var folderId = CurrentFolderId;
+        folders = allFolders.Where(f => f.ParentId == folderId).ToList();
+        images = allImages.Where(i => i.FolderId == folderId).ToList();
+        foreach (var image in images.Where(i => !thumbnails.ContainsKey(i.Id)))
+        {
+            thumbnails[image.Id] = await LibraryService.GetThumbnailDataUrlAsync(image);
+        }
+    }
+
+    private static string FolderUrl(string? folderId)
+    {
+        return folderId == null ? "library" : $"library?folder={Uri.EscapeDataString(folderId)}";
+    }
+
+    private string Summary()
+    {
+        var parts = new List<string>();
+        if (folders.Count > 0)
+        {
+            parts.Add($"{folders.Count} {(folders.Count == 1 ? "folder" : "folders")}");
+        }
+
+        parts.Add($"{images!.Count} {(images.Count == 1 ? "image" : "images")}");
+        return string.Join(", ", parts);
+    }
+
+    private string ItemCount(string folderId)
+    {
+        var count = allFolders.Count(f => f.ParentId == folderId) + allImages.Count(i => i.FolderId == folderId);
+        return count switch
+        {
+            0 => "Empty",
+            1 => "1 item",
+            _ => $"{count} items",
+        };
+    }
+
+    private async Task AddImagesAsync(InputFileChangeEventArgs e)
+    {
+        adding = true;
+        status = null;
+        statusIsError = false;
+        int added = 0, duplicates = 0;
+        var problems = new List<string>();
+
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: int.MaxValue))
+        {
+            try
+            {
+                if (file.Size > MaxFileSize)
+                {
+                    problems.Add($"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB");
+                    continue;
+                }
+
+                using var stream = file.OpenReadStream(MaxFileSize);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                var data = buffer.ToArray();
+
+                var thumbnail = await ThumbnailService.CreateAsync(data, LibraryService.ContentTypeFor(file.Name));
+                var (_, isNew) = await LibraryService.AddAsync(file.Name, data, thumbnail, CurrentFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
+                if (isNew)
+                {
+                    added++;
+                }
+                else
+                {
+                    duplicates++;
+                }
+            }
+            catch (Exception ex)
+            {
+                problems.Add($"{file.Name}: {ex.Message}");
+            }
+        }
+
+        await LoadAsync();
+        adding = false;
+
+        var parts = new List<string>();
+        if (added > 0)
+        {
+            parts.Add($"Added {added} {(added == 1 ? "image" : "images")}.");
+        }
+
+        if (duplicates > 0)
+        {
+            parts.Add($"{duplicates} {(duplicates == 1 ? "was" : "were")} already in the library.");
+        }
+
+        if (problems.Count > 0)
+        {
+            parts.Add($"Couldn't add {string.Join("; ", problems)}.");
+            statusIsError = added == 0;
+        }
+
+        status = string.Join(" ", parts);
+    }
+
+    private async Task DeleteAsync(LibraryImage image)
+    {
+        confirmDeleteId = null;
+        await LibraryService.DeleteAsync(image.Id);
+        thumbnails.Remove(image.Id);
+        await LoadAsync();
+        status = $"Removed {image.FileName}.";
+        statusIsError = false;
+    }
+
+    private static async Task OpenAsync(LibraryImage image)
+    {
+        await Launcher.Default.OpenAsync(new OpenFileRequest(image.FileName, new ReadOnlyFile(LibraryService.ImagePath(image))));
+    }
+
+    private void StartNewFolder()
+    {
+        renamingId = null;
+        newFolderName = "";
+        focusPending = true;
+    }
+
+    private async Task CreateFolderAsync()
+    {
+        try
+        {
+            var folder = await LibraryService.CreateFolderAsync(newFolderName ?? "", CurrentFolderId);
+            newFolderName = null;
+            await LoadAsync();
+            status = $"Created \"{folder.Name}\".";
+            statusIsError = false;
+        }
+        catch (LibraryException ex)
+        {
+            status = ex.Message;
+            statusIsError = true;
+        }
+    }
+
+    private void StartRename(LibraryFolder folder)
+    {
+        newFolderName = null;
+        confirmDeleteFolderId = null;
+        renamingId = folder.Id;
+        renameText = folder.Name;
+        focusPending = true;
+    }
+
+    private async Task RenameFolderAsync()
+    {
+        try
+        {
+            await LibraryService.RenameFolderAsync(renamingId!, renameText ?? "");
+            renamingId = null;
+            await LoadAsync();
+            status = null;
+        }
+        catch (LibraryException ex)
+        {
+            status = ex.Message;
+            statusIsError = true;
+        }
+    }
+
+    private async Task DeleteFolderAsync(LibraryFolder folder)
+    {
+        confirmDeleteFolderId = null;
+        await LibraryService.DeleteFolderAsync(folder.Id);
+        await LoadAsync();
+        status = $"Deleted the folder \"{folder.Name}\".";
+        statusIsError = false;
+    }
+
+    private void StartSelecting()
+    {
+        selecting = true;
+        newFolderName = null;
+        renamingId = null;
+        confirmDeleteId = null;
+        confirmDeleteFolderId = null;
+        moveTarget = MoveTargets().FirstOrDefault().Id ?? "";
+    }
+
+    private void StopSelecting()
+    {
+        selecting = false;
+        selectedImages.Clear();
+        selectedFolders.Clear();
+    }
+
+    private void Toggle(HashSet<string> set, string id)
+    {
+        if (!set.Remove(id))
+        {
+            set.Add(id);
+        }
+
+        // A selected folder can't be a destination, so the current choice may have just disappeared.
+        if (set == selectedFolders && MoveTargets().All(t => t.Id != moveTarget))
+        {
+            moveTarget = MoveTargets().FirstOrDefault().Id ?? "";
+        }
+    }
+
+    /// <summary>
+    /// Folders the selection can move to, as ("" for the top, or a folder id, label with the full path). Leaves out
+    /// the folder that's open, and selected folders and everything inside them.
+    /// </summary>
+    private List<(string Id, string Label)> MoveTargets()
+    {
+        var targets = new List<(string Id, string Label)>();
+        if (CurrentFolderId != null)
+        {
+            targets.Add(("", "Library (top)"));
+        }
+
+        foreach (var folder in allFolders)
+        {
+            var folderPath = LibraryService.PathTo(allFolders, folder.Id);
+            if (folder.Id != CurrentFolderId && !folderPath.Any(f => selectedFolders.Contains(f.Id)))
+            {
+                targets.Add((folder.Id, "Library / " + string.Join(" / ", folderPath.Select(f => f.Name))));
+            }
+        }
+
+        return targets.OrderBy(t => t.Id == "" ? "" : t.Label, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private void SelectAll()
+    {
+        selectedFolders.UnionWith(folders.Select(f => f.Id));
+        selectedImages.UnionWith(images!.Select(i => i.Id));
+        if (MoveTargets().All(t => t.Id != moveTarget))
+        {
+            moveTarget = MoveTargets().FirstOrDefault().Id ?? "";
+        }
+    }
+
+    private async Task SaveAsync(LibraryImage image)
+    {
+        try
+        {
+            if (await ExportService.SaveAsync(ExportFileName(image), await LibraryService.ReadAsync(image)) is string savedPath)
+            {
+                status = $"Saved to {savedPath}.";
+                statusIsError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            status = $"Couldn't save {image.FileName}: {ex.Message}";
+            statusIsError = true;
+        }
+    }
+
+    /// <summary>Exports the selected images, and selected folders with everything in them, keeping the folder structure.</summary>
+    private async Task ExportSelectedAsync()
+    {
+        var files = new List<ExportFile>();
+        foreach (var image in allImages.Where(i => selectedImages.Contains(i.Id)))
+        {
+            files.Add(new ExportFile(ExportFileName(image), () => LibraryService.ReadAsync(image)));
+        }
+
+        foreach (var folder in allFolders.Where(f => selectedFolders.Contains(f.Id)))
+        {
+            AddFolder(folder, ExportService.SafeName(folder.Name));
+        }
+
+        void AddFolder(LibraryFolder folder, string relativePath)
+        {
+            foreach (var image in allImages.Where(i => i.FolderId == folder.Id))
+            {
+                files.Add(new ExportFile(Path.Combine(relativePath, ExportFileName(image)), () => LibraryService.ReadAsync(image)));
+            }
+
+            foreach (var child in allFolders.Where(f => f.ParentId == folder.Id))
+            {
+                AddFolder(child, Path.Combine(relativePath, ExportService.SafeName(child.Name)));
+            }
+        }
+
+        if (files.Count == 0)
+        {
+            status = "The selected folders are empty, so there's nothing to export.";
+            statusIsError = true;
+            return;
+        }
+
+        exporting = true;
+        try
+        {
+            if (await ExportService.ExportAsync(files) is var (folderPath, count))
+            {
+                StopSelecting();
+                status = $"Exported {count} {(count == 1 ? "image" : "images")} to {folderPath}.";
+                statusIsError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            status = $"Couldn't export: {ex.Message}";
+            statusIsError = true;
+        }
+        finally
+        {
+            exporting = false;
+        }
+    }
+
+    /// <summary>The image's name, safe for any file system and with an extension that matches its contents.</summary>
+    private static string ExportFileName(LibraryImage image)
+    {
+        var name = ExportService.SafeName(image.FileName);
+        var extension = Path.GetExtension(LibraryService.ImagePath(image));
+        return LibraryService.ContentTypeFor(name) == image.ContentType && Path.HasExtension(name) ? name : name + extension;
+    }
+
+    private async Task MoveSelectedAsync()
+    {
+        var target = moveTarget == "" ? null : moveTarget;
+        var label = MoveTargets().FirstOrDefault(t => t.Id == moveTarget).Label;
+        if (label == null)
+        {
+            status = "Choose a folder to move to.";
+            statusIsError = true;
+            return;
+        }
+
+        try
+        {
+            var count = SelectedCount;
+            await LibraryService.MoveAsync(selectedImages, selectedFolders, target);
+            StopSelecting();
+            await LoadAsync();
+            status = $"Moved {count} {(count == 1 ? "item" : "items")} to {label}.";
+            statusIsError = false;
+        }
+        catch (LibraryException ex)
+        {
+            status = ex.Message;
+            statusIsError = true;
+        }
+    }
+}

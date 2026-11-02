@@ -1,0 +1,21 @@
+@* The <option>s for choosing a library folder: the top of the library (value ""), then every folder by its full path. *@
+
+<option value="">Library (top)@(DefaultId == "" ? " (default)" : null)</option>
+@foreach (var (id, label) in Options())
+{
+    <option value="@id">@label@(DefaultId == id ? " (default)" : null)</option>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<LibraryFolder> Folders { get; set; } = [];
+
+    /// <summary>The folder to mark "(default)", "" for the top of the library, or null to mark none.</summary>
+    [Parameter] public string? DefaultId { get; set; }
+
+    private IEnumerable<(string Id, string Label)> Options()
+    {
+        return Folders
+            .Select(f => (f.Id, Label: "Library / " + string.Join(" / ", LibraryService.PathTo(Folders, f.Id).Select(p => p.Name))))
+            .OrderBy(o => o.Label, StringComparer.CurrentCultureIgnoreCase);
+    }
+}
