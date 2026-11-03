@@ -5,7 +5,9 @@ namespace Mellow.SlopFactory.App.Services;
 public record InputImage(string FileName, byte[] Data);
 
 /// <param name="Workflow">The name of the workflow that made it.</param>
-public record GeneratedImage(string FilePath, byte[] Data, string Prompt, string Workflow);
+/// <param name="FinalPrompt">The prompt it was sampled with, when the workflow shows it (e.g. after Improve prompt).</param>
+/// <param name="PromptFellBack">Improve prompt was on but returned nothing, so <paramref name="Prompt"/> was used as written.</param>
+public record GeneratedImage(string FilePath, byte[] Data, string Prompt, string Workflow, string? FinalPrompt = null, bool PromptFellBack = false);
 
 public class ImageGenerationRequest
 {
@@ -89,6 +91,7 @@ public class ImageGenerationService
 		var kind = ImageWorkflows.KindFor(request.Images.Count, request.Mask != null);
 		var chosen = ImageWorkflows.Resolve(kind, request.Images.Count, request.WorkflowId)
 			?? throw new ArgumentException($"No workflow takes {request.Images.Count} images for {kind.ToString().ToLowerInvariant()}.", nameof(request));
+		var thinking = request.Thinking && chosen.SupportsThinking;
 		System.Text.Json.Nodes.JsonObject workflow;
 		if (chosen.Id == ImageWorkflows.Flux3KleinGenerate)
 		{
@@ -96,7 +99,7 @@ public class ImageGenerationService
 			{
 				Prompt = request.Prompt,
 				UpsamplePrompt = request.RefinePrompt,
-				Thinking = request.Thinking,
+				Thinking = thinking,
 				Width = request.Width,
 				Height = request.Height,
 			});
@@ -107,7 +110,7 @@ public class ImageGenerationService
 			{
 				Prompt = request.Prompt,
 				RefinePrompt = request.RefinePrompt,
-				Thinking = request.Thinking,
+				Thinking = thinking,
 				Width = request.Width,
 				Height = request.Height,
 			});
@@ -118,7 +121,7 @@ public class ImageGenerationService
 			{
 				Prompt = request.Prompt,
 				RefinePrompt = request.RefinePrompt,
-				Thinking = request.Thinking,
+				Thinking = thinking,
 				Width = request.Width,
 				Height = request.Height,
 			});
@@ -149,7 +152,7 @@ public class ImageGenerationService
 					Images = uploaded,
 					Mask = maskName,
 					RefinePrompt = request.RefinePrompt,
-					Thinking = request.Thinking,
+					Thinking = thinking,
 				});
 			}
 			else if (chosen.Id == ImageWorkflows.Flux3KleinInpaint && maskName != null)
@@ -160,7 +163,7 @@ public class ImageGenerationService
 					Images = uploaded,
 					Mask = maskName,
 					UpsamplePrompt = request.RefinePrompt,
-					Thinking = request.Thinking,
+					Thinking = thinking,
 				});
 			}
 			else if (chosen.Id == ImageWorkflows.Flux3KleinEdit)
@@ -170,7 +173,7 @@ public class ImageGenerationService
 					Prompt = request.Prompt,
 					Images = uploaded,
 					UpsamplePrompt = request.RefinePrompt,
-					Thinking = request.Thinking,
+					Thinking = thinking,
 				});
 			}
 			else
@@ -180,13 +183,15 @@ public class ImageGenerationService
 					Prompt = request.Prompt,
 					Images = uploaded,
 					RefinePrompt = request.RefinePrompt,
-					Thinking = request.Thinking,
+					Thinking = thinking,
 				});
 			}
 		}
 
 		progress?.Report(request.RefinePrompt && chosen.HasPromptEnhancer ?$"Improving the prompt and rendering with {chosen.Name}..." : $"Rendering with {chosen.Name}...");
-		var outputs = await comfy.RunWorkflowAsync(workflow, cancellationToken);
+		var run = await comfy.RunWorkflowWithTextAsync(workflow, cancellationToken);
+		var outputs = run.Files;
+		var refinement = PromptRefinement.Read(workflow, run.Text);
 
 		Directory.CreateDirectory(OutputDirectory);
 		var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
@@ -198,7 +203,7 @@ public class ImageGenerationService
 			var stem = name == null ? $"{stamp}-{i + 1}" : i == 0 ? name : $"{name}-{i + 1}";
 			var path = ExportService.UniquePath(Path.Combine(OutputDirectory, stem + extension));
 			await File.WriteAllBytesAsync(path, outputs[i].Data, cancellationToken);
-			results.Add(new GeneratedImage(path, outputs[i].Data, request.Prompt, chosen.Name));
+			results.Add(new GeneratedImage(path, outputs[i].Data, request.Prompt, chosen.Name, refinement.FinalPrompt, refinement.FellBack));
 		}
 
 		// The prompt goes next to the first image, under the same name.

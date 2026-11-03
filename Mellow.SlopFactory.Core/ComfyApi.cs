@@ -223,12 +223,27 @@ namespace Mellow.SlopFactory.Core
         /// </summary>
         public async Task<IReadOnlyList<ComfyOutputFile>> RunWorkflowAsync(JsonNode workflow, CancellationToken cancellationToken = default)
         {
+            return (await RunWorkflowWithTextAsync(workflow, cancellationToken)).Files;
+        }
+
+        /// <summary>
+        /// Like <see cref="RunWorkflowAsync"/>, but also returns the text nodes showed (e.g. a PreviewAny "Final
+        /// Prompt"), by node id.
+        /// </summary>
+        public async Task<ComfyWorkflowResult> RunWorkflowWithTextAsync(JsonNode workflow, CancellationToken cancellationToken = default)
+        {
             var queued = await QueuePromptAsync(workflow, cancellationToken);
             var entry = await WaitForCompletionAsync(queued.PromptId, cancellationToken: cancellationToken);
 
             var results = new List<ComfyOutputFile>();
+            var text = new Dictionary<string, IReadOnlyList<string>>();
             foreach (var (nodeId, output) in entry.Outputs ?? [])
             {
+                if (output.Text is { Count: > 0 } lines)
+                {
+                    text[nodeId] = lines;
+                }
+
                 foreach (var image in output.Images ?? [])
                 {
                     if (image.Type == "temp")
@@ -242,7 +257,7 @@ namespace Mellow.SlopFactory.Core
                 }
             }
 
-            return results;
+            return new ComfyWorkflowResult(results, text);
         }
 
         /// <summary>
@@ -353,8 +368,10 @@ namespace Mellow.SlopFactory.Core
         [property: JsonPropertyName("outputs")] Dictionary<string, ComfyNodeOutput>? Outputs,
         [property: JsonPropertyName("status")] ComfyPromptStatus? Status);
 
+    /// <param name="Text">Text shown by nodes such as PreviewAny, e.g. ["the final prompt"].</param>
     public record ComfyNodeOutput(
-        [property: JsonPropertyName("images")] List<ComfyFileRef>? Images);
+        [property: JsonPropertyName("images")] List<ComfyFileRef>? Images,
+        [property: JsonPropertyName("text")] List<string>? Text = null);
 
     public record ComfyPromptStatus(
         [property: JsonPropertyName("status_str")] string? StatusStr,
@@ -373,4 +390,7 @@ namespace Mellow.SlopFactory.Core
         [property: JsonPropertyName("type")] string? Type);
 
     public record ComfyOutputFile(string NodeId, ComfyFileRef File, byte[] Data);
+
+    /// <param name="Text">Text each node showed, by node id.</param>
+    public record ComfyWorkflowResult(IReadOnlyList<ComfyOutputFile> Files, IReadOnlyDictionary<string, IReadOnlyList<string>> Text);
 }

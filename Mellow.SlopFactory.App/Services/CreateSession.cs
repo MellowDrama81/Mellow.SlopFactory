@@ -75,6 +75,9 @@ public class CreateSession
 
 	public bool StatusIsError { get; set; }
 
+	/// <summary>The status is a warning: it worked, but not entirely as asked.</summary>
+	public bool StatusIsWarning { get; set; }
+
 	/// <summary>Set when a generation finishes with images, until the page has scrolled them into view.</summary>
 	public bool HasNewResults { get; set; }
 
@@ -106,6 +109,7 @@ public class CreateSession
 
 		Busy = true;
 		StatusIsError = false;
+		StatusIsWarning = false;
 		Status = "Starting...";
 		cts = new CancellationTokenSource();
 		Changed?.Invoke();
@@ -140,6 +144,11 @@ public class CreateSession
 			else if (libraryErrors.Count > 0)
 			{
 				Status = $"Done in {elapsed.TotalSeconds:0} s, but couldn't add it to the library: {libraryErrors[0]}";
+			}
+			else if (generated[0].PromptFellBack)
+			{
+				Status = $"Done in {elapsed.TotalSeconds:0} s, but Improve prompt returned nothing, so your prompt was used as written. Added to library.";
+				StatusIsWarning = true;
 			}
 			else
 			{
@@ -190,6 +199,7 @@ public class CreateSession
 		workflowChoices.Clear();
 		Status = null;
 		StatusIsError = false;
+		StatusIsWarning = false;
 		HasNewResults = false;
 		Changed?.Invoke();
 	}

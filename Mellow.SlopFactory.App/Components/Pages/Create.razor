@@ -167,8 +167,18 @@
             </label>
         </div>
         <div class="form-check form-switch">
-            <input id="thinking" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !Session.RefinePrompt || !canRefine)" @bind="Session.Thinking" />
-            <label for="thinking" class="form-check-label">Thinking <span class="text-body-secondary">(recommended with Improve prompt)</span></label>
+            <input id="thinking" class="form-check-input" type="checkbox" role="switch" disabled="@(Session.Busy || !Session.RefinePrompt || !canThink)" @bind="Session.Thinking" />
+            <label for="thinking" class="form-check-label">
+                Thinking
+                @if (canRefine && !canThink)
+                {
+                    <span class="text-body-secondary">(not used by @Session.Workflow!.Name)</span>
+                }
+                else
+                {
+                    <span class="text-body-secondary">(recommended with Improve prompt)</span>
+                }
+            </label>
         </div>
     </div>
 
@@ -202,7 +212,7 @@
         }
         @if (Session.Status != null)
         {
-            <span class="@(Session.StatusIsError ? "text-danger" : "text-body-secondary")" role="status">@Session.Status</span>
+            <span class="@(Session.StatusIsError ? "text-danger" : Session.StatusIsWarning ? "text-warning-emphasis" : "text-body-secondary")" role="status">@Session.Status</span>
         }
     </div>
 </div>
@@ -218,6 +228,13 @@
     else if (Session.Results.Count > 0)
     {
         <h2 class="h5">Result</h2>
+        @if (Session.Results[0].Image is { FinalPrompt: { } finalPrompt } first && (first.PromptFellBack || finalPrompt != first.Prompt))
+        {
+            <details class="prompt-used mb-2" open="@first.PromptFellBack">
+                <summary class="small text-body-secondary">@(first.PromptFellBack ? "Prompt used (Improve prompt returned nothing)" : "Improved prompt")</summary>
+                <p class="small mb-0 mt-1">@finalPrompt</p>
+            </details>
+        }
         @foreach (var result in Session.Results)
         {
             <figure class="result">
@@ -271,6 +288,9 @@
 
     /// <summary>Whether the chosen workflow has a prompt enhancer for "Improve prompt" to turn on.</summary>
     private bool canRefine => Session.Workflow?.HasPromptEnhancer != false;
+
+    /// <summary>Whether the chosen workflow's enhancer can use "Thinking".</summary>
+    private bool canThink => canRefine && Session.Workflow?.SupportsThinking != false;
 
     protected override async Task OnInitializedAsync()
     {
