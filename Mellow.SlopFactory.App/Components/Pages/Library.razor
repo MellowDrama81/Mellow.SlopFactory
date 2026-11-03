@@ -182,22 +182,39 @@ else
                          title="@(image.Metadata?.Prompt is { } prompt ? $"Prompt: {prompt}" : image.FileName)" />
                 }
                 <figcaption>
-                    <div class="text-truncate small" title="@image.FileName">@image.FileName</div>
-                    <div class="text-body-secondary small">@image.AddedAt.LocalDateTime.ToString("d MMM yyyy")</div>
-                    @if (confirmDeleteId == image.Id)
+                    @if (renamingId == image.Id)
                     {
-                        <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteAsync(image)">Delete</button>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => confirmDeleteId = null">Keep</button>
-                        </div>
+                        <form class="d-flex flex-column gap-1" @onsubmit="() => RenameImageAsync(image)">
+                            <div class="input-group input-group-sm">
+                                <input class="form-control" aria-label="Image name" @bind="renameText" @bind:event="oninput" @ref="renameInput" />
+                                <span class="input-group-text">@Path.GetExtension(image.FileName)</span>
+                            </div>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-primary btn-sm" type="submit" disabled="@string.IsNullOrWhiteSpace(renameText)">Save</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => renamingId = null">Cancel</button>
+                            </div>
+                        </form>
                     }
-                    else if (!selecting)
+                    else
                     {
-                        <div class="d-flex flex-wrap gap-1 mt-1">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Open" aria-label="Open @image.FileName" @onclick="() => OpenAsync(image)"><Icon Name="open" /></button>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" aria-label="Save a copy of @image.FileName" @onclick="() => SaveAsync(image)"><Icon Name="save" /></button>
-                            <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" aria-label="Remove @image.FileName from library" @onclick="() => confirmDeleteId = image.Id"><Icon Name="trash" /></button>
-                        </div>
+                        <div class="text-truncate small" title="@image.FileName">@image.FileName</div>
+                        <div class="text-body-secondary small">@image.AddedAt.LocalDateTime.ToString("d MMM yyyy")</div>
+                        @if (confirmDeleteId == image.Id)
+                        {
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                <button class="btn btn-danger btn-sm" type="button" @onclick="() => DeleteAsync(image)">Delete</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => confirmDeleteId = null">Keep</button>
+                            </div>
+                        }
+                        else if (!selecting)
+                        {
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" title="Open" aria-label="Open @image.FileName" @onclick="() => OpenAsync(image)"><Icon Name="open" /></button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" title="Rename" aria-label="Rename @image.FileName" @onclick="() => StartRenameImage(image)"><Icon Name="pencil" /></button>
+                                <button class="btn btn-outline-secondary btn-sm" type="button" title="Save a copy somewhere else" aria-label="Save a copy of @image.FileName" @onclick="() => SaveAsync(image)"><Icon Name="save" /></button>
+                                <button class="btn btn-outline-danger btn-sm" type="button" title="Remove from library" aria-label="Remove @image.FileName from library" @onclick="() => confirmDeleteId = image.Id"><Icon Name="trash" /></button>
+                            </div>
+                        }
                     }
                 </figcaption>
             </figure>
@@ -444,6 +461,33 @@ else
             renamingId = null;
             await LoadAsync();
             status = null;
+        }
+        catch (LibraryException ex)
+        {
+            status = ex.Message;
+            statusIsError = true;
+        }
+    }
+
+    private void StartRenameImage(LibraryImage image)
+    {
+        newFolderName = null;
+        confirmDeleteId = null;
+        confirmDeleteFolderId = null;
+        renamingId = image.Id;
+        renameText = Path.GetFileNameWithoutExtension(image.FileName);
+        focusPending = true;
+    }
+
+    private async Task RenameImageAsync(LibraryImage image)
+    {
+        try
+        {
+            var fileName = await LibraryService.RenameImageAsync(image.Id, renameText ?? "");
+            renamingId = null;
+            await LoadAsync();
+            status = $"Renamed {image.FileName} to {fileName}.";
+            statusIsError = false;
         }
         catch (LibraryException ex)
         {

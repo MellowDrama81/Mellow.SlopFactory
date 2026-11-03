@@ -257,6 +257,52 @@ public class LibraryService
 	}
 
 	/// <summary>
+	/// Renames an image. The extension is kept, so <paramref name="name"/> can leave it off (an image extension typed
+	/// on the end is replaced). Returns the new file name.
+	/// </summary>
+	public async Task<string> RenameImageAsync(string id, string name)
+	{
+		await gate.WaitAsync();
+		try
+		{
+			var library = await LoadIndexAsync();
+			var position = library.Images.FindIndex(i => i.Id == id);
+			if (position < 0)
+			{
+				throw new LibraryException("That image is no longer in the library.");
+			}
+
+			var image = library.Images[position];
+			var stem = name.Trim();
+			if (Path.GetExtension(stem).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".webp")
+			{
+				stem = Path.GetFileNameWithoutExtension(stem).Trim();
+			}
+
+			if (stem.Length == 0)
+			{
+				throw new LibraryException("Enter a name.");
+			}
+
+			if (stem.IndexOfAny(['/', '\\']) >= 0)
+			{
+				throw new LibraryException("A name can't contain / or \\.");
+			}
+
+			var extension = Path.GetExtension(image.FileName) is { Length: > 0 } ext ? ext : ExtensionFor(image.ContentType);
+			var fileName = stem + extension;
+			library.Images[position] = image with { FileName = fileName };
+			await SaveIndexAsync(library);
+			Changed?.Invoke();
+			return fileName;
+		}
+		finally
+		{
+			gate.Release();
+		}
+	}
+
+	/// <summary>
 	/// Deletes a folder without deleting anything in it: its images and subfolders move up into its parent.
 	/// </summary>
 	public async Task DeleteFolderAsync(string id)
