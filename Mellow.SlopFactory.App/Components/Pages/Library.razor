@@ -9,10 +9,7 @@
     <h1 class="mb-0">Library</h1>
     <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary" type="button" disabled="@(images == null || selecting)" @onclick="StartNewFolder">New folder</button>
-        <label class="btn btn-primary @(adding || selecting ? "disabled" : null)">
-            <InputFile OnChange="AddImagesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" disabled="@(adding || selecting)" />
-            @(adding ? "Adding..." : "Add images")
-        </label>
+        <button class="btn btn-primary" type="button" disabled="@(adding || selecting)" @onclick="AddImagesAsync">@(adding ? "Adding..." : "Add images")</button>
     </div>
 </div>
 
@@ -223,8 +220,6 @@ else
 }
 
 @code {
-    private const long MaxFileSize = 25 * 1024 * 1024;
-
     /// <summary>The open folder's id, or null for the top of the library.</summary>
     [SupplyParameterFromQuery] public string? Folder { get; set; }
 
@@ -342,7 +337,7 @@ else
         };
     }
 
-    private async Task AddImagesAsync(InputFileChangeEventArgs e)
+    private async Task AddImagesAsync()
     {
         adding = true;
         status = null;
@@ -350,23 +345,32 @@ else
         int added = 0, duplicates = 0;
         var problems = new List<string>();
 
-        foreach (var file in e.GetMultipleFiles(maximumFileCount: int.MaxValue))
+        IReadOnlyList<PickedFile> files;
+        try
+        {
+            (files, var pickProblems) = await ImageFilePicker.PickAsync();
+            problems.AddRange(pickProblems);
+        }
+        catch (Exception ex)
+        {
+            adding = false;
+            status = $"Couldn't open the file picker: {ex.Message}";
+            statusIsError = true;
+            return;
+        }
+
+        if (files.Count == 0 && problems.Count == 0)
+        {
+            adding = false;
+            return;
+        }
+
+        foreach (var file in files)
         {
             try
             {
-                if (file.Size > MaxFileSize)
-                {
-                    problems.Add($"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB");
-                    continue;
-                }
-
-                using var stream = file.OpenReadStream(MaxFileSize);
-                using var buffer = new MemoryStream();
-                await stream.CopyToAsync(buffer);
-                var data = buffer.ToArray();
-
-                var thumbnail = await ThumbnailService.CreateAsync(data, LibraryService.ContentTypeFor(file.Name));
-                var (_, isNew) = await LibraryService.AddAsync(file.Name, data, thumbnail, CurrentFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
+                var thumbnail = await ThumbnailService.CreateAsync(file.Data, LibraryService.ContentTypeFor(file.FileName));
+                var (_, isNew) = await LibraryService.AddAsync(file.FileName, file.Data, thumbnail, CurrentFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
                 if (isNew)
                 {
                     added++;
@@ -378,7 +382,7 @@ else
             }
             catch (Exception ex)
             {
-                problems.Add($"{file.Name}: {ex.Message}");
+                problems.Add($"{file.FileName}: {ex.Message}");
             }
         }
 

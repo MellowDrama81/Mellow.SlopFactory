@@ -19,10 +19,7 @@
             </select>
         </div>
     }
-    <label class="btn btn-primary @(adding ? "disabled" : null)">
-        <InputFile OnChange="AddFilesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" disabled="@adding" />
-        @(adding ? "Adding..." : "Add images")
-    </label>
+    <button class="btn btn-primary" type="button" disabled="@adding" @onclick="AddFilesAsync">@(adding ? "Adding..." : "Add images")</button>
     <button class="btn btn-outline-secondary" type="button" disabled="@adding" @onclick="() => showLibraryPicker = true">From library</button>
     @if (jobs.Any(j => j.IsFinished))
     {
@@ -98,7 +95,6 @@ else
 }
 
 @code {
-    private const long MaxFileSize = 25 * 1024 * 1024;
     private const int MaxPick = 50;
 
     [Parameter, EditorRequired] public ImageTool Tool { get; set; }
@@ -125,34 +121,37 @@ else
     }
 
     /// <summary>Adds the files to the library (as the Create page does), then queues them.</summary>
-    private async Task AddFilesAsync(InputFileChangeEventArgs e)
+    private async Task AddFilesAsync()
     {
         adding = true;
         error = null;
         var problems = new List<string>();
         var added = new List<(LibraryImage, string)>();
-        foreach (var file in e.GetMultipleFiles(maximumFileCount: MaxPick))
+        IReadOnlyList<PickedFile> files;
+        try
+        {
+            (files, var pickProblems) = await ImageFilePicker.PickAsync();
+            problems.AddRange(pickProblems);
+        }
+        catch (Exception ex)
+        {
+            adding = false;
+            error = $"Couldn't open the file picker: {ex.Message}";
+            return;
+        }
+
+        foreach (var file in files.Take(MaxPick))
         {
             try
             {
-                if (file.Size > MaxFileSize)
-                {
-                    problems.Add($"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB");
-                    continue;
-                }
-
-                using var stream = file.OpenReadStream(MaxFileSize);
-                using var buffer = new MemoryStream();
-                await stream.CopyToAsync(buffer);
-                var data = buffer.ToArray();
-                var thumbnail = await ThumbnailService.CreateAsync(data, LibraryService.ContentTypeFor(file.Name));
-                var (image, _) = await LibraryService.AddAsync(file.Name, data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId,
+                var thumbnail = await ThumbnailService.CreateAsync(file.Data, LibraryService.ContentTypeFor(file.FileName));
+                var (image, _) = await LibraryService.AddAsync(file.FileName, file.Data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId,
                     new LibraryImageMetadata(LibraryImageSource.Uploaded));
                 added.Add((image, await LibraryService.GetThumbnailDataUrlAsync(image)));
             }
             catch (Exception ex)
             {
-                problems.Add($"{file.Name}: {ex.Message}");
+                problems.Add($"{file.FileName}: {ex.Message}");
             }
         }
 

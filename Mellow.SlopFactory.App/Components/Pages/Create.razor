@@ -91,10 +91,9 @@
 
             @if (Session.Images.Count < ImageGenerationService.MaxImages && !Session.Busy)
             {
-                <label class="image-tile add-tile">
-                    <InputFile OnChange="AddImagesAsync" multiple accept="image/png,image/jpeg,image/webp" class="visually-hidden" />
+                <button class="image-tile add-tile" type="button" @onclick="AddImagesAsync">
                     <span>+ Add images</span>
-                </label>
+                </button>
                 <button class="image-tile add-tile" type="button" @onclick="() => showLibraryPicker = true">
                     <span>From library</span>
                 </button>
@@ -259,8 +258,6 @@
 }
 
 @code {
-    private const long MaxFileSize = 25 * 1024 * 1024;
-
     private bool comfyNotConfigured;
     private string? imageError;
     private ElementReference resultsSection;
@@ -322,11 +319,25 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private async Task AddImagesAsync(InputFileChangeEventArgs e)
+    private async Task AddImagesAsync()
     {
         imageError = null;
+        IReadOnlyList<PickedFile> files;
+        try
+        {
+            (files, var problems) = await ImageFilePicker.PickAsync();
+            if (problems.Count > 0)
+            {
+                imageError = $"Couldn't add {string.Join("; ", problems)}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            imageError = $"Couldn't open the file picker: {ex.Message}";
+            return;
+        }
+
         var free = ImageGenerationService.MaxImages - images.Count;
-        var files = e.GetMultipleFiles(maximumFileCount: int.MaxValue);
         if (files.Count > free)
         {
             imageError = $"Only {ImageGenerationService.MaxImages} images are allowed; the first {free} were added.";
@@ -334,32 +345,23 @@
 
         foreach (var file in files.Take(free))
         {
-            if (file.Size > MaxFileSize)
-            {
-                imageError = $"{file.Name} is larger than {MaxFileSize / (1024 * 1024)} MB.";
-                continue;
-            }
-
-            using var stream = file.OpenReadStream(MaxFileSize);
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            var input = new InputImage(file.Name, buffer.ToArray());
+            var input = new InputImage(file.FileName, file.Data);
 
             // Keep a copy in the library so it can be picked again later. Failing that shouldn't stop it being used now.
             byte[]? thumbnail = null;
             try
             {
-                thumbnail = await ThumbnailService.CreateAsync(input.Data, LibraryService.ContentTypeFor(file.Name));
-                await LibraryService.AddAsync(file.Name, input.Data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
+                thumbnail = await ThumbnailService.CreateAsync(input.Data, LibraryService.ContentTypeFor(file.FileName));
+                await LibraryService.AddAsync(file.FileName, input.Data, thumbnail, SettingsService.LoadLibrary().UploadedFolderId, new LibraryImageMetadata(LibraryImageSource.Uploaded));
             }
             catch (Exception ex)
             {
-                imageError = $"{file.Name} was added, but couldn't be saved to the library: {ex.Message}";
+                imageError = $"{file.FileName} was added, but couldn't be saved to the library: {ex.Message}";
             }
 
             images.Add(thumbnail != null
                 ? new CreateSession.InputItem(input, $"data:image/jpeg;base64,{Convert.ToBase64String(thumbnail)}")
-                : CreateSession.InputItem.FromData(input, file.ContentType));
+                : CreateSession.InputItem.FromData(input, LibraryService.ContentTypeFor(file.FileName)));
         }
     }
 
